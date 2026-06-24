@@ -9,8 +9,6 @@ filter passband drawn over it, just like the IC-9700's own display.
 It ships with a built-in **simulator**, so the full interface and waterfall run
 with no radio attached. Point it at a real COM port when you're ready.
 
-![panel](docs/screenshot.png)
-
 ## Features
 
 - **Live bandscope + waterfall** decoded from CI-V `27 00` scope data (475

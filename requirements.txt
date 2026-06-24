@@ -1,0 +1,4 @@
+starlette>=0.37
+uvicorn>=0.27
+websockets>=12
+pyserial>=3.5

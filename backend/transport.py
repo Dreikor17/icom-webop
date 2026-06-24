@@ -1,0 +1,285 @@
+"""
+Transports carry raw CI-V bytes to/from "the radio".
+
+Two implementations share one interface:
+  * SerialTransport - a real IC-9700 on a Windows COM port (USB CI-V).
+  * SimTransport    - a built-in simulator that speaks CI-V back, including
+                      USB-style 11-frame 27 00 scope sweeps, so the whole UI
+                      and waterfall can be built and verified with no radio.
+
+Reads happen on a background thread that calls on_bytes(data).
+"""
+from __future__ import annotations
+
+import math
+import threading
+import time
+from typing import Callable, Optional
+
+import serial
+from serial.tools import list_ports
+
+from . import civ
+
+
+def available_ports() -> list[dict]:
+    out = []
+    for p in list_ports.comports():
+        out.append({"device": p.device, "description": p.description or "",
+                    "hwid": p.hwid or ""})
+    return out
+
+
+class Transport:
+    def start(self, on_bytes: Callable[[bytes], None]) -> None: ...
+    def write(self, data: bytes) -> None: ...
+    def stop(self) -> None: ...
+    @property
+    def name(self) -> str: return "transport"
+
+
+class SerialTransport(Transport):
+    def __init__(self, port: str, baud: int = 115200) -> None:
+        self.port = port
+        self.baud = baud
+        self._ser: Optional[serial.Serial] = None
+        self._on_bytes: Optional[Callable[[bytes], None]] = None
+        self._thread: Optional[threading.Thread] = None
+        self._stop = threading.Event()
+
+    @property
+    def name(self) -> str:
+        return f"{self.port}@{self.baud}"
+
+    def start(self, on_bytes: Callable[[bytes], None]) -> None:
+        self._on_bytes = on_bytes
+        self._ser = serial.Serial(self.port, self.baud, timeout=0.05)
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._reader, name="civ-serial",
+                                        daemon=True)
+        self._thread.start()
+
+    def _reader(self) -> None:
+        assert self._ser is not None
+        while not self._stop.is_set():
+            try:
+                data = self._ser.read(4096)
+                if data and self._on_bytes:
+                    self._on_bytes(data)
+            except Exception:
+                time.sleep(0.1)
+
+    def write(self, data: bytes) -> None:
+        if self._ser and self._ser.is_open:
+            try:
+                self._ser.write(data)
+            except Exception:
+                pass
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=1.0)
+        if self._ser:
+            try:
+                self._ser.close()
+            except Exception:
+                pass
+
+
+class SimTransport(Transport):
+    """A synthetic IC-9700. Responds to CI-V commands and streams a scope."""
+
+    def __init__(self, fps: float = 20.0) -> None:
+        self._on_bytes: Optional[Callable[[bytes], None]] = None
+        self._thread: Optional[threading.Thread] = None
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self._reader = civ.FrameReader()
+        self.fps = fps
+        self._t0 = time.time()
+
+        # simulated radio state
+        self.freq = 144_200_000
+        self.mode = 0x01           # USB
+        self.filt = 0x01           # FIL1
+        self.span = 50_000         # full span Hz (±25k)
+        self.scope_center = True   # center vs fixed
+        self.scope_on = False
+        self.scope_out = False
+        self.levels = {0x01: 128, 0x02: 200, 0x03: 0, 0x0A: 180}  # AF/RF/SQL/RFpwr
+        self.funcs = {0x02: 0x01}  # preamp on
+
+    @property
+    def name(self) -> str:
+        return "Simulator"
+
+    def start(self, on_bytes: Callable[[bytes], None]) -> None:
+        self._on_bytes = on_bytes
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._loop, name="civ-sim",
+                                        daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=1.0)
+
+    # -- incoming commands ---------------------------------------------------
+    def write(self, data: bytes) -> None:
+        for fr in self._reader.feed(data):
+            self._handle(fr)
+
+    def _emit(self, cmd: int, sub: Optional[int], data: bytes = b"") -> None:
+        # reply travels radio -> controller (to=E0, from=A2)
+        frame = civ.build(cmd, sub, data,
+                          radio_addr=civ.DEFAULT_CTRL_ADDR,
+                          ctrl_addr=civ.DEFAULT_RADIO_ADDR)
+        if self._on_bytes:
+            self._on_bytes(frame)
+
+    def _ok(self) -> None:
+        self._emit(civ.OK, None)
+
+    def _handle(self, fr: civ.Frame) -> None:
+        c, s, d = fr.cmd, fr.sub, fr.data
+        with self._lock:
+            if c == 0x03:                                   # read freq
+                self._emit(0x03, None, civ.freq_to_bcd(self.freq))
+            elif c == 0x04:                                 # read mode
+                self._emit(0x04, None, bytes([self.mode, self.filt]))
+            elif c == 0x05:                                 # set freq
+                self.freq = civ.bcd_to_freq(bytes([s]) + d if s is not None else d)
+                self._ok()
+            elif c == 0x00:                                 # set freq (transceive)
+                self.freq = civ.bcd_to_freq(bytes([s]) + d if s is not None else d)
+            elif c == 0x06:                                 # set mode
+                if s is not None:
+                    self.mode = s
+                    self.filt = d[0] if d else 0x01
+                self._ok()
+            elif c == 0x07:                                 # VFO select
+                self._ok()
+            elif c == 0x14:                                 # levels
+                if d:                                       # set
+                    self.levels[s] = civ.bcd_to_level(d)
+                    self._ok()
+                else:                                       # read
+                    self._emit(0x14, s, civ.level_to_bcd(self.levels.get(s, 0)))
+            elif c == 0x15:                                 # meters (read)
+                self._emit(0x15, s, civ.level_to_bcd(self._meter(s)))
+            elif c == 0x16:                                 # functions
+                if d:
+                    self.funcs[s] = d[0]
+                    self._ok()
+                else:
+                    self._emit(0x16, s, bytes([self.funcs.get(s, 0)]))
+            elif c == 0x19:                                 # read radio id
+                self._emit(0x19, 0x00, bytes([civ.DEFAULT_RADIO_ADDR]))
+            elif c == 0x18:                                 # power on/off
+                self._ok()
+            elif c == 0x27:                                 # scope control
+                self._scope_cmd(s, d)
+            else:
+                self._ok()
+
+    def _scope_cmd(self, sub: Optional[int], d: bytes) -> None:
+        if sub == 0x10:        # scope on/off
+            if d:
+                self.scope_on = d[0] == 1
+            self._ok()
+        elif sub == 0x11:      # data output on/off
+            if d:
+                self.scope_out = d[0] == 1
+            self._ok()
+        elif sub == 0x14:      # center/fixed
+            if len(d) >= 2:
+                self.scope_center = d[1] == 0
+            self._ok()
+        elif sub == 0x15:      # span (main/sub + 5 BCD)
+            if len(d) >= 6:
+                self.span = civ.bcd_to_freq(d[1:6]) or self.span
+            self._ok()
+        else:
+            self._ok()
+
+    def _meter(self, sub: Optional[int]) -> int:
+        t = time.time() - self._t0
+        if sub == 0x02:        # S-meter, breathe around S5-S7
+            return int(70 + 35 * (0.5 + 0.5 * math.sin(t * 0.7)))
+        return 0
+
+    # -- scope generation ----------------------------------------------------
+    def _loop(self) -> None:
+        period = 1.0 / self.fps
+        while not self._stop.is_set():
+            with self._lock:
+                run = self.scope_on and self.scope_out
+                center = self.freq
+                span = self.span
+            if run:
+                self._emit_scope(center, span)
+            time.sleep(period)
+
+    def _emit_scope(self, center: int, span: int) -> None:
+        wf = self._make_waveform(span)
+
+        # header frame (div 1 of 11): main/sub, 1, 11, center/fixed=0,
+        #   center freq (5), span (5), out-of-range
+        header = bytearray([0x00, 0x01, 0x0B, 0x00])
+        header += civ.freq_to_bcd(center)
+        header += civ.freq_to_bcd(span)
+        header += bytes([0x00])
+        self._emit(0x27, 0x00, bytes(header))
+
+        # 10 waveform frames (div 2..11)
+        chunks = _split_even(wf, 10)
+        for i, ch in enumerate(chunks):
+            body = bytes([0x00, 0x02 + i, 0x0B]) + ch
+            self._emit(0x27, 0x00, body)
+
+    def _make_waveform(self, span: int) -> bytes:
+        n = civ.SCOPE_POINTS
+        t = time.time() - self._t0
+        out = bytearray(n)
+        # noise floor
+        floor = 22.0
+        for x in range(n):
+            # cheap deterministic "noise"
+            nse = (math.sin(x * 12.9898 + t * 7.0) * 43758.5453)
+            nse = (nse - math.floor(nse))  # 0..1
+            out[x] = int(floor + nse * 10)
+        # signals: (relative position 0..1, base amplitude, drift, width)
+        sigs = [
+            (0.50, 132, 14, 5),    # tuned station near center, breathing
+            (0.30, 95, 8, 4),
+            (0.72, 110, 22, 3),
+            (0.18, 70, 30, 2),
+        ]
+        for pos, amp, drift, width in sigs:
+            cx = int(pos * n)
+            a = amp + drift * math.sin(t * (0.5 + pos))
+            for x in range(max(0, cx - width * 6), min(n, cx + width * 6)):
+                g = math.exp(-((x - cx) ** 2) / (2 * width * width))
+                v = out[x] + a * g
+                out[x] = int(min(civ.SCOPE_MAX, v))
+        # occasional transient
+        if int(t * 3) % 7 == 0:
+            cx = int((0.4 + 0.2 * math.sin(t)) * n)
+            for x in range(max(0, cx - 3), min(n, cx + 3)):
+                out[x] = min(civ.SCOPE_MAX, out[x] + 40)
+        return bytes(out)
+
+
+def _split_even(data: bytes, parts: int) -> list[bytes]:
+    n = len(data)
+    base = n // parts
+    rem = n % parts
+    chunks = []
+    i = 0
+    for p in range(parts):
+        size = base + (1 if p < rem else 0)
+        chunks.append(data[i:i + size])
+        i += size
+    return chunks

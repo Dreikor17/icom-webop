@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Icom WebOp · IC-9700</title>
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand"><span class="mk">ICOM</span> WebOp<span class="model">IC-9700</span></div>
+  <div class="conn">
+    <span id="led" class="led"></span>
+    <span id="connlabel" class="connlabel">Disconnected</span>
+    <select id="transport" title="Connection">
+      <option value="sim">Simulator</option>
+    </select>
+    <input id="baud" type="number" value="115200" title="Baud rate" class="baud" />
+    <button id="connectBtn" class="ctl-btn primary">Connect</button>
+    <button id="disconnectBtn" class="ctl-btn">Disconnect</button>
+  </div>
+</header>
+
+<main class="radio">
+  <!-- ===================== DISPLAY (TFT) ===================== -->
+  <section class="display">
+    <div class="readout">
+      <div class="vfo">
+        <span class="vfo-tag">VFO</span><span id="vfoLetter">A</span>
+      </div>
+      <div class="freq" id="freq">144.200.000</div>
+      <div class="freq-units">MHz</div>
+      <div class="modebox">
+        <div class="mode" id="modeReadout">USB</div>
+        <div class="filt" id="filtReadout">FIL1</div>
+        <div class="tx" id="txTag">RX</div>
+      </div>
+    </div>
+
+    <div class="meter">
+      <div class="meter-scale">
+        <span>S1</span><span>3</span><span>5</span><span>7</span><span>9</span>
+        <span>+20</span><span>+40</span><span>+60</span>
+      </div>
+      <div class="meter-bar"><div class="meter-fill" id="meterFill"></div></div>
+      <div class="meter-val" id="meterVal">S0</div>
+    </div>
+
+    <div class="scope" id="scopeWrap">
+      <canvas id="spectrum"></canvas>
+      <canvas id="waterfall"></canvas>
+      <canvas id="overlay" class="overlay-canvas"></canvas>
+      <div class="scope-labels">
+        <span id="lblLeft" class="lbl-left"></span>
+        <span id="lblCenter" class="lbl-center"></span>
+        <span id="lblRight" class="lbl-right"></span>
+      </div>
+    </div>
+
+    <div class="scope-ctl">
+      <button data-act="scope_mode" data-center="1" class="sc-btn active" id="btnCenter">CENT</button>
+      <button data-act="scope_mode" data-center="0" class="sc-btn" id="btnFixed">FIX</button>
+      <span class="sep"></span>
+      <button class="sc-btn" id="spanDn">SPAN &minus;</button>
+      <span class="span-val" id="spanVal">±25k</span>
+      <button class="sc-btn" id="spanUp">SPAN +</button>
+      <span class="sep"></span>
+      <span class="hint">Click scope to tune · scroll = step · drag dial</span>
+    </div>
+  </section>
+
+  <!-- ===================== CONTROLS ===================== -->
+  <section class="controls">
+    <div class="grp">
+      <div class="grp-title">BAND</div>
+      <div class="row">
+        <button class="key band" data-act="band" data-band="144">144</button>
+        <button class="key band" data-act="band" data-band="430">430</button>
+        <button class="key band" data-act="band" data-band="1200">1200</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <div class="grp-title">MODE</div>
+      <div class="row wrap">
+        <button class="key mode" data-act="mode" data-mode="LSB">LSB</button>
+        <button class="key mode" data-act="mode" data-mode="USB">USB</button>
+        <button class="key mode" data-act="mode" data-mode="CW">CW</button>
+        <button class="key mode" data-act="mode" data-mode="CW-R">CW-R</button>
+        <button class="key mode" data-act="mode" data-mode="AM">AM</button>
+        <button class="key mode" data-act="mode" data-mode="FM">FM</button>
+        <button class="key mode" data-act="mode" data-mode="RTTY">RTTY</button>
+        <button class="key mode" data-act="mode" data-mode="DV">DV</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <div class="grp-title">FILTER</div>
+      <div class="row">
+        <button class="key filt" data-act="filter" data-filter="1">FIL1</button>
+        <button class="key filt" data-act="filter" data-filter="2">FIL2</button>
+        <button class="key filt" data-act="filter" data-filter="3">FIL3</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <div class="grp-title">VFO</div>
+      <div class="row">
+        <button class="key" data-act="vfo" data-code="0">A</button>
+        <button class="key" data-act="vfo" data-code="1">B</button>
+        <button class="key" data-act="vfo" data-code="160">A=B</button>
+        <button class="key" data-act="vfo" data-code="176">SWAP</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <div class="grp-title">FREQUENCY</div>
+      <div class="row">
+        <input id="freqEntry" class="freq-entry" placeholder="e.g. 432.100" />
+        <button class="key" id="freqSet">SET</button>
+      </div>
+      <div class="row step-row">
+        <span class="step-label">STEP</span>
+        <select id="step">
+          <option value="10">10 Hz</option>
+          <option value="100">100 Hz</option>
+          <option value="1000">1 kHz</option>
+          <option value="5000">5 kHz</option>
+          <option value="10000">10 kHz</option>
+          <option value="12500">12.5 kHz</option>
+          <option value="25000" selected>25 kHz</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="grp dial-grp">
+      <div class="grp-title">MAIN DIAL</div>
+      <div class="dial" id="dial">
+        <div class="dial-knob" id="dialKnob"><span class="dial-mark"></span></div>
+      </div>
+      <div class="ptt-row">
+        <button class="key ptt" id="pttBtn" data-act="ptt">PTT</button>
+      </div>
+    </div>
+
+    <div class="grp sliders">
+      <div class="grp-title">LEVELS</div>
+      <label class="sl"><span>AF</span><input type="range" min="0" max="255" id="af" data-target="af"></label>
+      <label class="sl"><span>RF</span><input type="range" min="0" max="255" id="rf" data-target="rf"></label>
+      <label class="sl"><span>SQL</span><input type="range" min="0" max="255" id="sql" data-target="sql"></label>
+      <label class="sl"><span>PWR</span><input type="range" min="0" max="255" id="rfpwr" data-target="rfpwr"></label>
+    </div>
+  </section>
+</main>
+
+<script src="/static/waterfall.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

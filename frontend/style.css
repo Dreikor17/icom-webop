@@ -1,0 +1,157 @@
+/* ===== Icom WebOp — IC-9700 theme ===================================== */
+:root{
+  --bg:#0c0e11;
+  --panel:#1a1d22;
+  --panel-2:#23272e;
+  --bezel:#0f1115;
+  --key:#2a2f37;
+  --key-hi:#363c46;
+  --key-edge:#454c58;
+  --txt:#c7ced8;
+  --txt-dim:#7e8794;
+  --tft:#04121f;
+  --tft-grid:#0f3148;
+  --accent:#19a7e0;     /* icom blue */
+  --accent-2:#23d3a7;
+  --amber:#ffb648;
+  --tune:#ff9a2e;       /* tuned channel marker */
+  --filter:rgba(80,200,255,.16);
+  --red:#ff4d4d;
+  --green:#37e08a;
+  --font: "Segoe UI", Roboto, system-ui, sans-serif;
+  --mono: "Consolas", "DejaVu Sans Mono", monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:radial-gradient(1200px 700px at 50% -10%, #15191f 0%, var(--bg) 60%);
+  color:var(--txt);font-family:var(--font);font-size:14px;
+  -webkit-font-smoothing:antialiased;padding:14px;
+}
+
+/* ---- top bar ---- */
+.topbar{
+  display:flex;align-items:center;justify-content:space-between;
+  max-width:1180px;margin:0 auto 12px;padding:8px 14px;
+  background:linear-gradient(180deg,#20242b,#171a1f);
+  border:1px solid #2c313a;border-radius:10px;
+}
+.brand{font-weight:700;letter-spacing:.5px;font-size:18px;display:flex;align-items:center;gap:8px}
+.brand .mk{color:#fff;background:var(--accent);padding:2px 7px;border-radius:4px;font-size:14px;letter-spacing:1px}
+.brand .model{color:var(--txt-dim);font-weight:600;font-size:13px;border-left:1px solid #39404b;padding-left:8px;margin-left:2px}
+.conn{display:flex;align-items:center;gap:8px}
+.connlabel{color:var(--txt-dim);font-size:12px;min-width:96px}
+.led{width:11px;height:11px;border-radius:50%;background:#5a2020;box-shadow:0 0 6px #000 inset}
+.led.on{background:var(--green);box-shadow:0 0 8px var(--green)}
+select,input,.baud{
+  background:#11141a;color:var(--txt);border:1px solid #333a45;border-radius:6px;
+  padding:5px 8px;font-family:var(--font);font-size:13px;
+}
+.baud{width:80px}
+.ctl-btn{background:var(--key);color:var(--txt);border:1px solid var(--key-edge);
+  border-radius:6px;padding:6px 12px;cursor:pointer;font-size:13px}
+.ctl-btn:hover{background:var(--key-hi)}
+.ctl-btn.primary{background:var(--accent);border-color:var(--accent);color:#04121f;font-weight:600}
+
+/* ---- radio bezel ---- */
+.radio{
+  max-width:1180px;margin:0 auto;display:grid;grid-template-columns:1fr 340px;gap:14px;
+  background:linear-gradient(180deg,#23272e,#16191e);
+  border:1px solid #313742;border-radius:16px;padding:16px;
+  box-shadow:0 20px 60px rgba(0,0,0,.5), 0 1px 0 #3a414d inset;
+}
+
+/* ---- display / TFT ---- */
+.display{
+  background:linear-gradient(180deg,#02263b 0%, var(--tft) 30%);
+  border:2px solid #05202e;border-radius:10px;padding:12px;
+  box-shadow:0 0 0 3px #0a0d11, 0 0 30px rgba(20,120,180,.18) inset;
+}
+.readout{display:grid;grid-template-columns:auto 1fr auto auto;align-items:end;gap:10px;margin-bottom:8px}
+.vfo{display:flex;flex-direction:column;align-items:center;color:var(--accent-2);font-weight:700}
+.vfo-tag{font-size:10px;color:var(--txt-dim)}
+.vfo span:last-child{font-size:22px;line-height:1}
+.freq{
+  font-family:var(--mono);font-weight:700;font-size:46px;line-height:1;
+  color:#eaf6ff;text-shadow:0 0 10px rgba(80,200,255,.35);letter-spacing:1px;
+}
+.freq-units{color:var(--txt-dim);font-size:13px;padding-bottom:6px}
+.modebox{display:flex;flex-direction:column;gap:3px;align-items:flex-end}
+.mode{background:#0a2c40;color:var(--accent-2);font-weight:700;padding:2px 8px;border-radius:4px;font-size:14px}
+.filt{color:var(--txt-dim);font-size:12px}
+.tx{font-weight:700;font-size:12px;padding:1px 7px;border-radius:4px;background:#123;color:var(--green)}
+.tx.on{background:var(--red);color:#fff;box-shadow:0 0 8px var(--red)}
+
+/* S-meter */
+.meter{display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;gap:2px 8px;margin-bottom:10px}
+.meter-scale{grid-column:1;display:flex;justify-content:space-between;font-size:9px;color:var(--txt-dim)}
+.meter-bar{grid-column:1;grid-row:2;height:12px;background:#06222f;border:1px solid #0d3346;border-radius:3px;overflow:hidden}
+.meter-fill{height:100%;width:0%;
+  background:linear-gradient(90deg,var(--green) 0%, var(--green) 55%, var(--amber) 70%, var(--red) 100%);
+  transition:width .08s linear}
+.meter-val{grid-row:1/3;grid-column:2;align-self:center;font-family:var(--mono);font-weight:700;color:#eaf6ff;font-size:16px;min-width:54px;text-align:right}
+
+/* scope stack */
+.scope{position:relative;border:1px solid #0d3346;border-radius:6px;overflow:hidden;background:#020c14}
+#spectrum{display:block;width:100%;height:150px}
+#waterfall{display:block;width:100%;height:240px}
+.overlay-canvas{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}
+.scope-labels{position:absolute;left:0;right:0;top:2px;display:flex;justify-content:space-between;
+  padding:0 6px;font-family:var(--mono);font-size:11px;color:#bfe6ff;text-shadow:0 0 4px #000;pointer-events:none}
+.lbl-center{color:var(--tune)}
+
+.scope-ctl{display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap}
+.sc-btn{background:#0a2233;color:var(--txt);border:1px solid #14425c;border-radius:5px;padding:4px 9px;cursor:pointer;font-size:12px}
+.sc-btn:hover{background:#0e3247}
+.sc-btn.active{background:var(--accent);color:#04121f;border-color:var(--accent);font-weight:600}
+.span-val{font-family:var(--mono);color:#bfe6ff;min-width:54px;text-align:center}
+.scope-ctl .sep{flex:0 0 1px;height:18px;background:#14425c;margin:0 4px}
+.scope-ctl .hint{color:var(--txt-dim);font-size:11px;margin-left:auto}
+
+/* ---- controls column ---- */
+.controls{display:flex;flex-direction:column;gap:10px}
+.grp{background:linear-gradient(180deg,#1d2127,#171a1f);border:1px solid #2b313b;border-radius:9px;padding:9px 10px}
+.grp-title{font-size:10px;letter-spacing:1.5px;color:var(--txt-dim);margin-bottom:7px}
+.row{display:flex;gap:6px}
+.row.wrap{flex-wrap:wrap}
+.key{
+  flex:1 1 auto;min-width:42px;background:linear-gradient(180deg,var(--key-hi),var(--key));
+  color:var(--txt);border:1px solid var(--key-edge);border-top-color:#566071;
+  border-radius:7px;padding:9px 6px;cursor:pointer;font-size:13px;font-weight:600;
+  box-shadow:0 2px 0 #0d1014, 0 1px 2px rgba(0,0,0,.4);
+}
+.key:hover{background:linear-gradient(180deg,#3e4550,#2e343d)}
+.key:active{transform:translateY(1px);box-shadow:0 1px 0 #0d1014}
+.key.active{background:linear-gradient(180deg,#1ec0ff,#1488c0);color:#04121f;border-color:#1ec0ff;
+  box-shadow:0 0 10px rgba(30,180,255,.5),0 2px 0 #0d1014}
+.key.ptt{background:linear-gradient(180deg,#7a2530,#581820);border-color:#94303c}
+.key.ptt.on{background:linear-gradient(180deg,#ff5a5a,#c52a2a);color:#fff;box-shadow:0 0 14px var(--red)}
+
+.freq-entry{flex:1;font-family:var(--mono)}
+.step-row{align-items:center;margin-top:6px}
+.step-label{font-size:11px;color:var(--txt-dim);margin-right:4px}
+#step{flex:1}
+
+/* main dial */
+.dial-grp{display:flex;flex-direction:column;align-items:center}
+.dial{width:150px;height:150px;border-radius:50%;
+  background:radial-gradient(circle at 50% 35%,#3a414d,#1a1d22 70%);
+  border:2px solid #454c58;box-shadow:0 8px 20px rgba(0,0,0,.5),0 1px 0 #5a6270 inset;
+  display:flex;align-items:center;justify-content:center;cursor:grab;touch-action:none}
+.dial:active{cursor:grabbing}
+.dial-knob{width:122px;height:122px;border-radius:50%;position:relative;
+  background:repeating-conic-gradient(#262b32 0deg 9deg,#20242b 9deg 18deg);
+  border:1px solid #2c313a;box-shadow:0 0 0 6px #14171c inset}
+.dial-mark{position:absolute;left:50%;top:8px;width:4px;height:26px;background:var(--accent);
+  border-radius:2px;transform:translateX(-50%);box-shadow:0 0 8px var(--accent)}
+.ptt-row{margin-top:10px;width:100%}
+.ptt-row .ptt{width:100%}
+
+/* sliders */
+.sliders{display:flex;flex-direction:column;gap:7px}
+.sl{display:grid;grid-template-columns:34px 1fr;align-items:center;gap:8px;font-size:12px;color:var(--txt-dim)}
+.sl input[type=range]{width:100%;accent-color:var(--accent)}
+
+@media (max-width:960px){
+  .radio{grid-template-columns:1fr}
+}

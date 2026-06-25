@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launch the Icom WebOp server. Usage: python run.py [--host H] [--port P]"""
+"""Launch the Radio WebOp server. Usage: python run.py [--host H] [--port P]"""
 import argparse
 import os
 import sys
@@ -15,7 +15,7 @@ import uvicorn
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Icom WebOp server")
+    ap = argparse.ArgumentParser(description="Radio WebOp server")
     ap.add_argument("--host", default="0.0.0.0",
                     help="bind address (default 0.0.0.0 = all interfaces, incl. LAN/Tailscale)")
     ap.add_argument("--port", type=int, default=8700)
@@ -29,7 +29,7 @@ def main() -> None:
             webbrowser.open(local)
         except Exception:
             pass
-    print(f"Icom WebOp -> {local}")
+    print(f"Radio WebOp -> {local}")
     if args.host in ("0.0.0.0", "::"):
         print(f"  Also reachable on all interfaces (LAN / Tailscale) at port {args.port}.")
         print("  WARNING: no login — anyone who can reach this port can control the radio (incl. TX).")

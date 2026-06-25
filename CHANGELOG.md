@@ -1,23 +1,42 @@
 # Changelog
 
-All notable changes to Icom WebOp (IC-9700) are documented here. This project
-adheres to [Semantic Versioning](https://semver.org).
+All notable changes to **Radio WebOp** are documented here. This project adheres
+to [Semantic Versioning](https://semver.org).
 
-## [Unreleased]
+## [0.2.0] — 2026-06-25
+
+Merged the former **Icom WebOp (IC-9700)** and **IC-7300MK2 WebOp** apps into one
+multi-radio program: **Radio WebOp**.
 
 ### Added
-- Over LAN, the radio's **MOD Input is set to LAN automatically on connect** (and
-  restored on disconnect), so the browser mic transmits without changing the
-  radio's menu. The LAN MOD level is bumped if it was 0.
+- **Multi-radio support with a radio-model selector.** Bands, modes, steps and
+  the CI-V address come from a per-model profile (`backend/profiles.py`); ships
+  the IC-9700 and IC-7300MK2. Adding a radio is just a new profile.
+- **Tap-to-select and drag/slide tuning** directly on the waterfall (alongside
+  the dial, wheel, step select and direct entry).
+- **PTT failsafe time-out** — the radio auto-unkeys after a fixed interval both
+  client-side (a visible countdown on the PTT button) and server-side (an
+  independent auto-unkey that fires even if the browser is gone).
+- A **collapsible connection bar on mobile** (status + ⚙ toggle) so the scope
+  gets the screen; it auto-collapses once connected.
+- `ROADMAP.md`.
+- Over LAN, **MOD Input is set to LAN automatically on connect** (and restored on
+  disconnect), so the browser mic transmits without changing the radio's menu.
 
 ### Changed
-- **PTT is now tap-to-toggle** (was press-and-hold) so it works on touchscreens:
-  tap to key TX, tap again for RX. Latched TX auto-releases for safety on
-  screen-lock / app-switch, page close, a 5-minute backstop, and (server-side)
-  if the last client disconnects.
-- Microphone (TX) now shows a clear "needs HTTPS" message on insecure
-  (plain-HTTP) connections instead of a generic "access denied" — browsers only
-  expose `getUserMedia` in a secure context (HTTPS or localhost).
+- Renamed the app to **Radio WebOp**; responsive/mobile layout pass.
+- **PTT is tap-to-toggle** (was press-and-hold) so it works on touchscreens.
+- Remembers the selected radio alongside the connection method.
+- Microphone (TX) shows a clear "needs HTTPS" message on insecure connections —
+  browsers only expose `getUserMedia` in a secure context (HTTPS or localhost).
+
+### Fixed
+- **Stuck-TX risk with multiple clients:** the radio now unkeys when *any* keyed
+  client disconnects, not only the last one (the client-side unkey can be lost
+  when the socket is already closing). The server failsafe remains the backstop.
+- **MOD Input could be left on LAN** if the read of the original value was lost;
+  the app now only takes over the MOD source once it has captured the original,
+  so it can always restore it (otherwise it leaves the radio's MOD untouched).
 
 ## [0.1.0] — 2026-06-25
 
@@ -56,4 +75,5 @@ live spectrum scope + waterfall.
 - Mic capture (TX) needs a secure context (HTTPS or localhost), so it won't run
   over plain-HTTP remote access; RX audio playback works over HTTP.
 
+[0.2.0]: https://github.com/Dreikor17/icom-webop/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Dreikor17/icom-webop/releases/tag/v0.1.0

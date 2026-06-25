@@ -1,4 +1,4 @@
-/* Icom WebOp — UI controller */
+/* Radio WebOp — UI controller */
 (function () {
   "use strict";
   const $ = (id) => document.getElementById(id);
@@ -6,6 +6,8 @@
   const scope = new Scope($("spectrum"), $("waterfall"), $("overlay"), $("scopeWrap"));
 
   let ws = null, state = {}, step = 25000;
+  let radios = [], currentRadio = null;          // radio profiles from /api/radios
+  let pttIntended = false, pttKeyedAt = 0;       // PTT toggle state + time keyed
 
   // ---- frequency formatting (Icom dotted readout) ----
   function formatFreq(hz) {
@@ -86,13 +88,17 @@
     $("led").classList.toggle("on", on);
     $("connlabel").textContent = on ? (s.transport || "Connected") : "Disconnected";
     $("audioAvail").textContent = s.audio ? "• available" : "• LAN only";
+    $("modelLabel").textContent = on ? (s.radio_name || "") : (currentRadio ? currentRadio.name : "");
 
-    // PTT / TX tag
+    // PTT / TX tag (button label + countdown handled by tickPtt)
     $("txTag").textContent = s.ptt ? "TX" : "RX";
     $("txTag").classList.toggle("on", !!s.ptt);
     $("pttBtn").classList.toggle("on", !!s.ptt);
-    $("pttBtn").textContent = s.ptt ? "ON AIR — TAP TO STOP" : "PTT";
-    pttIntended = !!s.ptt;   // keep local intent in sync with the radio's actual TX state
+    if (!!s.ptt !== pttIntended) {             // reconcile with the radio's real TX state
+      pttIntended = !!s.ptt;
+      if (pttIntended) pttKeyedAt = Date.now();
+    }
+    tickPtt();
 
     // span + scope mode
     $("spanVal").textContent = s.span_label || "";
@@ -119,9 +125,9 @@
   }
 
   function bandOf(hz) {
-    if (hz >= 1_240_000_000) return 1200;
-    if (hz >= 430_000_000) return 430;
-    return 144;
+    if (!currentRadio) return "";
+    for (const b of currentRadio.bands) if (hz >= b.lo && hz <= b.hi) return b.name;
+    return "";
   }
   function setActive(sel, pred) {
     document.querySelectorAll(sel).forEach(b => b.classList.toggle("active", pred(b)));
@@ -170,32 +176,63 @@
     });
   }
 
-  // PTT — tap to toggle (works on touch + mouse). Latched TX auto-releases for
-  // safety on background/screen-lock, page unload, a 5-min backstop, and
-  // (server-side) if the connection drops.
+  // PTT — tap to toggle (works on touch + mouse). Latched TX auto-releases on
+  // screen-lock / app-switch, page unload, and the failsafe time-out (which the
+  // server independently enforces too). The button shows the countdown.
   const ptt = $("pttBtn");
-  let pttIntended = false, pttWatchdog = null;
   function setPtt(tx) {
     pttIntended = !!tx;
+    if (pttIntended) pttKeyedAt = Date.now();
     send({ action: "ptt", tx: pttIntended });
-    if (pttWatchdog) { clearTimeout(pttWatchdog); pttWatchdog = null; }
-    if (pttIntended) pttWatchdog = setTimeout(() => setPtt(false), 300000);  // 5-min safety
+    tickPtt();
   }
+  function tickPtt() {
+    if (!pttIntended) { ptt.textContent = "PTT"; return; }
+    const left = (state.ptt_tot || 120) - Math.floor((Date.now() - pttKeyedAt) / 1000);
+    if (left <= 0) { setPtt(false); return; }       // client failsafe (server enforces too)
+    ptt.textContent = "ON AIR " + left + "s — STOP";
+  }
+  setInterval(tickPtt, 400);
   ptt.addEventListener("click", () => setPtt(!pttIntended));
   document.addEventListener("visibilitychange", () => { if (document.hidden && pttIntended) setPtt(false); });
   window.addEventListener("pagehide", () => { if (pttIntended) setPtt(false); });
 
-  // ---- tuning: click-to-tune + wheel on the scope ----
+  // ---- tuning on the scope: tap to select a frequency, drag/slide to spin ----
   const wrap = $("scopeWrap");
-  wrap.addEventListener("click", (e) => {
+  let scDown = false, scStartX = 0, scLastX = 0, scMoved = 0, scAccum = 0;
+  function scBounds() {
+    const m = scope.meta;
+    if (m.mode === 1 && m.lower && m.upper) return [m.lower, m.upper];
+    return [m.center - m.span / 2, m.center + m.span / 2];
+  }
+  wrap.addEventListener("pointerdown", (e) => {
+    scDown = true; scMoved = 0; scAccum = 0;
     const r = wrap.getBoundingClientRect();
-    const x = e.clientX - r.left;
-    const m = scope.meta; let lo, hi;
-    if (m.mode === 1 && m.lower && m.upper) { lo = m.lower; hi = m.upper; }
-    else { lo = m.center - m.span / 2; hi = m.center + m.span / 2; }
-    const freq = lo + (x / scope.W) * (hi - lo);
-    send({ action: "set_freq", hz: Math.round(freq / step) * step });  // snap to step
+    scStartX = scLastX = e.clientX - r.left;
+    try { wrap.setPointerCapture(e.pointerId); } catch (_) {}
   });
+  wrap.addEventListener("pointermove", (e) => {
+    if (!scDown) return;
+    const r = wrap.getBoundingClientRect();
+    const x = e.clientX - r.left, dx = x - scLastX; scLastX = x; scMoved += Math.abs(dx);
+    if (scMoved > 6) {                                // a drag -> pan the frequency
+      const b = scBounds();
+      scAccum += -(dx / scope.W) * (b[1] - b[0]);     // drag right -> tune down (content follows finger)
+      const n = (scAccum / step) | 0;
+      if (n !== 0) { send({ action: "tune", delta: n * step }); scAccum -= n * step; }
+    }
+  });
+  function scEnd(e) {
+    if (!scDown) return; scDown = false;
+    try { wrap.releasePointerCapture(e.pointerId); } catch (_) {}
+    if (scMoved <= 6) {                               // a tap -> tune to that point
+      const b = scBounds();
+      const freq = b[0] + (scStartX / scope.W) * (b[1] - b[0]);
+      send({ action: "set_freq", hz: Math.round(freq / step) * step });
+    }
+  }
+  wrap.addEventListener("pointerup", scEnd);
+  wrap.addEventListener("pointercancel", () => { scDown = false; });
   wrap.addEventListener("wheel", (e) => {
     e.preventDefault();
     send({ action: "tune", delta: (e.deltaY < 0 ? 1 : -1) * step });
@@ -234,6 +271,44 @@
     send({ action: "tune", delta: (e.deltaY < 0 ? 1 : -1) * step });
   }, { passive: false });
 
+  // ---- radio profiles (bands/modes/steps render from the selected radio) ----
+  function selectedRadio() { return radios.find(p => p.id === $("radioSel").value) || radios[0] || null; }
+  async function loadRadios() {
+    try {
+      const j = await (await fetch("/api/radios")).json();
+      radios = j.radios || [];
+      const sel = $("radioSel"); sel.innerHTML = "";
+      for (const p of radios) {
+        const o = document.createElement("option"); o.value = p.id; o.textContent = p.name; sel.appendChild(o);
+      }
+    } catch (_) { radios = []; }
+    return radios;
+  }
+  function renderRadio(p) {
+    if (!p) return;
+    currentRadio = p;
+    $("modelLabel").textContent = state.connected ? (state.radio_name || p.name) : p.name;
+    const br = $("bandRow"); br.innerHTML = ""; br.classList.toggle("band-grid", p.bands.length > 4);
+    for (const b of p.bands) {
+      const btn = document.createElement("button");
+      btn.className = "key band"; btn.dataset.act = "band"; btn.dataset.band = b.name;
+      btn.textContent = b.name; br.appendChild(btn);
+    }
+    const mr = $("modeRow"); mr.innerHTML = "";
+    for (const name of p.modes) {
+      const btn = document.createElement("button");
+      btn.className = "key mode"; btn.dataset.act = "mode"; btn.dataset.mode = name;
+      btn.textContent = name; mr.appendChild(btn);
+    }
+    const st = $("step"); st.innerHTML = "";
+    for (const s of p.steps) {
+      const o = document.createElement("option"); o.value = s.v; o.textContent = s.label;
+      if (s.v === p.default_step) o.selected = true; st.appendChild(o);
+    }
+    step = p.default_step;
+  }
+  $("radioSel").addEventListener("change", () => { renderRadio(selectedRadio()); saveConn(); });
+
   // ---- connection controls ----
   async function loadPorts() {
     try {
@@ -260,26 +335,29 @@
   }
   $("transport").addEventListener("change", updateConnFields);
 
-  const CONN_KEY = "icomwebop.conn";
+  const CONN_KEY = "radiowebop.conn";
   function buildConnectBody() {
+    const radio = $("radioSel").value;
     const sel = $("transport"), opt = sel.options[sel.selectedIndex];
-    if (!opt || opt.value === "sim") return { transport: "sim" };
+    if (!opt || opt.value === "sim") return { transport: "sim", radio };
     if (opt.value === "lan") return {
-      transport: "lan", host: $("lanHost").value.trim(), port: 50001,
+      transport: "lan", radio, host: $("lanHost").value.trim(), port: 50001,
       user: $("lanUser").value, password: $("lanPass").value,
     };
-    return { transport: "serial", port: opt.value, baud: +$("baud").value || 115200 };
+    return { transport: "serial", radio, port: opt.value, baud: +$("baud").value || 115200 };
   }
   function saveConn() {
     try {
       localStorage.setItem(CONN_KEY, JSON.stringify({
+        radio: $("radioSel").value,
         transport: $("transport").value, host: $("lanHost").value,
         user: $("lanUser").value, pass: $("lanPass").value, baud: $("baud").value,
       }));
     } catch (_) {}
   }
   function restoreConnFields() {
-    let s = null; try { s = JSON.parse(localStorage.getItem(CONN_KEY) || "null"); } catch (_) {}
+    let s = null;
+    try { s = JSON.parse(localStorage.getItem(CONN_KEY) || localStorage.getItem("icomwebop.conn") || "null"); } catch (_) {}
     if (!s) return null;
     if (s.host) $("lanHost").value = s.host;
     if (s.user) $("lanUser").value = s.user;
@@ -292,17 +370,19 @@
     try {
       const r = await fetch("/api/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const j = await r.json();
-      if (!j.ok && !silent) alert("Connect failed: " + (j.error || "unknown"));
+      if (j.ok) $("conn").classList.remove("open");      // collapse settings on success (mobile)
+      else if (!silent) alert("Connect failed: " + (j.error || "unknown"));
     } catch (e) { if (!silent) alert("Connect error: " + e); }
     finally { btn.textContent = "Connect"; btn.disabled = false; }
   }
+  $("connToggle").onclick = () => $("conn").classList.toggle("open");
   $("connectBtn").onclick = () => {
     const body = buildConnectBody();
     if (body.transport === "lan" && !body.host) { alert("Enter the radio's IP address."); return; }
     saveConn();
-    doConnect(body);
+    doConnect(body);                       // collapses the settings on success (mobile)
   };
-  $("disconnectBtn").onclick = () => fetch("/api/disconnect", { method: "POST" });
+  $("disconnectBtn").onclick = () => { $("conn").classList.add("open"); fetch("/api/disconnect", { method: "POST" }); };
 
   // ---- RX audio (Web Audio playback of 16-bit LE mono PCM) ----
   let audioCtx = null, audioGain = null, playTime = 0, audioOn = false;
@@ -387,18 +467,24 @@
   $("vol").oninput = (e) => { if (audioGain) audioGain.gain.value = (+e.target.value) / 100; };
 
   // ---- boot ----
-  step = +$("step").value;
   const saved = restoreConnFields();
   updateConnFields();
   connectWS();
-  loadPorts().then((status) => {
+  loadRadios().then(() => {
+    if (saved && saved.radio && radios.some(p => p.id === saved.radio)) $("radioSel").value = saved.radio;
+    renderRadio(selectedRadio());
+    return loadPorts();
+  }).then((status) => {
     const sel = $("transport");
     if (saved && [...sel.options].some(o => o.value === saved.transport)) sel.value = saved.transport;
     updateConnFields();
-    if (status && status.connected) return;       // server already connected — leave it
-    const body = buildConnectBody();               // else connect to the remembered method
-    // silent: a failed auto-connect (e.g. remembered radio is off) shouldn't alert
-    if (body.transport === "lan" && !body.host) doConnect({ transport: "sim" }, true);
+    if (status && status.connected) {              // already connected — reflect its radio
+      if (status.radio && radios.some(p => p.id === status.radio)) { $("radioSel").value = status.radio; renderRadio(selectedRadio()); }
+      $("conn").classList.remove("open");          // collapse settings (mobile)
+      return;
+    }
+    const body = buildConnectBody();               // else connect to the remembered method (silent on failure)
+    if (body.transport === "lan" && !body.host) doConnect({ transport: "sim", radio: $("radioSel").value }, true);
     else doConnect(body, true);
   });
 })();

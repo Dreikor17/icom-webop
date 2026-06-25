@@ -1,5 +1,5 @@
 """
-Icom WebOp server.
+Radio WebOp server.
 
 ASGI app (Starlette on uvicorn):
   GET  /              -> the radio UI
@@ -25,7 +25,7 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from . import civ
+from . import civ, profiles
 from .lan import LanTransport
 from .radio import Radio
 from .transport import SerialTransport, SimTransport, available_ports
@@ -110,12 +110,16 @@ async def index(request):
     return FileResponse(FRONTEND / "index.html")
 
 
+async def api_radios(request):
+    return JSONResponse({"radios": [p.to_json() for p in profiles.PROFILES.values()]})
+
+
 async def api_ports(request):
-    ports = available_ports()
     return JSONResponse({
-        "ports": ports,
+        "ports": available_ports(),
         "connected": radio.state["connected"],
         "transport": radio.state["transport"],
+        "radio": radio.state["radio"],
     })
 
 
@@ -123,10 +127,9 @@ async def api_connect(request):
     body = await request.json()
     kind = body.get("transport", "sim")
     try:
+        profile = profiles.PROFILES.get(body.get("radio"), radio.profile)
         if kind == "serial":
-            port = body["port"]
-            baud = int(body.get("baud", 115200))
-            tp = SerialTransport(port, baud)
+            tp = SerialTransport(body["port"], int(body.get("baud", 115200)))
         elif kind == "lan":
             host = (body.get("host") or "").strip()
             if not host:
@@ -134,9 +137,9 @@ async def api_connect(request):
             tp = LanTransport(host, int(body.get("port", 50001)),
                               body.get("user", ""), body.get("password", ""))
         else:
-            tp = SimTransport()
-        radio.connect(tp)
-        return JSONResponse({"ok": True, "transport": radio.state["transport"]})
+            tp = SimTransport(profile)
+        radio.connect(tp, profile)
+        return JSONResponse({"ok": True, "transport": radio.state["transport"], "radio": profile.id})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
 
@@ -178,8 +181,11 @@ async def ws_endpoint(ws: WebSocket):
     finally:
         send_task.cancel()
         hub.remove(q)
-        # safety: never leave the radio keyed if the last client drops
-        if not hub.clients and radio.state.get("ptt"):
+        # safety: PTT is a single shared radio state with one keyer, so the
+        # disconnecting client may be the one transmitting. Unkey on ANY client
+        # drop while keyed — not just the last one — since the client-side unkey
+        # can be lost when the socket is already closing.
+        if radio.state.get("ptt"):
             radio.set_ptt(False)
 
 
@@ -220,6 +226,7 @@ async def _startup():
 
 routes = [
     Route("/", index),
+    Route("/api/radios", api_radios),
     Route("/api/ports", api_ports),
     Route("/api/connect", api_connect, methods=["POST"]),
     Route("/api/disconnect", api_disconnect, methods=["POST"]),

@@ -1,4 +1,4 @@
-/* ===== Icom WebOp — IC-9700 theme ===================================== */
+/* ===== Radio WebOp — Icom theme ====================================== */
 :root{
   --bg:#0c0e11;
   --panel:#1a1d22;
@@ -40,6 +40,9 @@ body{
 .brand .mk{color:#fff;background:var(--accent);padding:2px 7px;border-radius:4px;font-size:14px;letter-spacing:1px}
 .brand .model{color:var(--txt-dim);font-weight:600;font-size:13px;border-left:1px solid #39404b;padding-left:8px;margin-left:2px}
 .conn{display:flex;align-items:center;gap:8px}
+.conn-controls{display:flex;align-items:center;gap:8px}
+.conn-toggle{display:none;background:var(--key);color:var(--txt);border:1px solid var(--key-edge);
+  border-radius:6px;padding:6px 11px;font-size:15px;cursor:pointer}
 .connlabel{color:var(--txt-dim);font-size:12px;min-width:96px}
 .led{width:11px;height:11px;border-radius:50%;background:#5a2020;box-shadow:0 0 6px #000 inset}
 .led.on{background:var(--green);box-shadow:0 0 8px var(--green)}
@@ -209,4 +212,15 @@ select,input,.baud{
   .freq{font-size:clamp(26px,10vw,36px)}
   .band-grid{grid-template-columns:repeat(3,1fr)}
   .key{font-size:12px}
+}
+
+/* ===== v0.2 merge: radio selector + scope touch tuning ===== */
+#radioSel{max-width:140px}
+#scopeWrap{touch-action:pan-y}   /* horizontal drag tunes; vertical scrolls the page */
+@media (max-width:680px){
+  #radioSel{flex:1 1 130px;min-height:42px}
+  /* collapse the connection controls behind a ⚙ toggle to save vertical space */
+  .conn-toggle{display:inline-block;margin-left:auto}
+  .conn-controls{display:none;flex-wrap:wrap;width:100%;gap:6px}
+  .conn.open .conn-controls{display:flex}
 }

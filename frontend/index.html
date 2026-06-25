@@ -3,28 +3,32 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Icom WebOp · IC-9700</title>
+<title>Radio WebOp</title>
 <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
 
 <header class="topbar">
-  <div class="brand"><span class="mk">ICOM</span> WebOp<span class="model">IC-9700</span><span class="ver">v0.1.0</span></div>
-  <div class="conn">
+  <div class="brand"><span class="mk">RADIO</span> WebOp<span class="model" id="modelLabel"></span><span class="ver">v0.2.0</span></div>
+  <div class="conn open" id="conn">
     <span id="led" class="led"></span>
     <span id="connlabel" class="connlabel">Disconnected</span>
-    <select id="transport" title="Connection">
-      <option value="sim">Simulator</option>
-      <option value="lan">LAN (network)</option>
-    </select>
-    <input id="baud" type="number" value="115200" title="Baud rate" class="baud" hidden />
-    <span id="lanFields" class="lan-fields" hidden>
-      <input id="lanHost" class="lan-host" placeholder="radio IP (e.g. 192.168.1.50)" title="Radio IP" />
-      <input id="lanUser" class="lan-user" placeholder="net user" title="Network username" />
-      <input id="lanPass" type="password" class="lan-pass" placeholder="password" title="Network password" />
-    </span>
-    <button id="connectBtn" class="ctl-btn primary">Connect</button>
-    <button id="disconnectBtn" class="ctl-btn">Disconnect</button>
+    <button id="connToggle" class="conn-toggle" title="Connection settings">⚙</button>
+    <div class="conn-controls" id="connControls">
+      <select id="radioSel" title="Radio model"></select>
+      <select id="transport" title="Connection">
+        <option value="sim">Simulator</option>
+        <option value="lan">LAN (network)</option>
+      </select>
+      <input id="baud" type="number" value="115200" title="Baud rate" class="baud" hidden />
+      <span id="lanFields" class="lan-fields" hidden>
+        <input id="lanHost" class="lan-host" placeholder="radio IP (e.g. 192.168.1.50)" title="Radio IP" />
+        <input id="lanUser" class="lan-user" placeholder="net user" title="Network username" />
+        <input id="lanPass" type="password" class="lan-pass" placeholder="password" title="Network password" />
+      </span>
+      <button id="connectBtn" class="ctl-btn primary">Connect</button>
+      <button id="disconnectBtn" class="ctl-btn">Disconnect</button>
+    </div>
   </div>
 </header>
 
@@ -35,7 +39,7 @@
       <div class="vfo">
         <span class="vfo-tag">VFO</span><span id="vfoLetter">A</span>
       </div>
-      <div class="freq" id="freq">144.200.000</div>
+      <div class="freq" id="freq">—</div>
       <div class="freq-units">MHz</div>
       <div class="modebox">
         <div class="mode" id="modeReadout">USB</div>
@@ -72,7 +76,7 @@
       <span class="span-val" id="spanVal">±25k</span>
       <button class="sc-btn" id="spanUp">SPAN +</button>
       <span class="sep"></span>
-      <span class="hint">Click scope to tune · scroll = step · drag dial</span>
+      <span class="hint">Tap to tune · drag/slide to spin · scroll = step</span>
     </div>
   </section>
 
@@ -80,25 +84,12 @@
   <section class="controls">
     <div class="grp">
       <div class="grp-title">BAND</div>
-      <div class="row">
-        <button class="key band" data-act="band" data-band="144">144</button>
-        <button class="key band" data-act="band" data-band="430">430</button>
-        <button class="key band" data-act="band" data-band="1200">1200</button>
-      </div>
+      <div class="row wrap band-grid" id="bandRow"></div>
     </div>
 
     <div class="grp">
       <div class="grp-title">MODE</div>
-      <div class="row wrap">
-        <button class="key mode" data-act="mode" data-mode="LSB">LSB</button>
-        <button class="key mode" data-act="mode" data-mode="USB">USB</button>
-        <button class="key mode" data-act="mode" data-mode="CW">CW</button>
-        <button class="key mode" data-act="mode" data-mode="CW-R">CW-R</button>
-        <button class="key mode" data-act="mode" data-mode="AM">AM</button>
-        <button class="key mode" data-act="mode" data-mode="FM">FM</button>
-        <button class="key mode" data-act="mode" data-mode="RTTY">RTTY</button>
-        <button class="key mode" data-act="mode" data-mode="DV">DV</button>
-      </div>
+      <div class="row wrap" id="modeRow"></div>
     </div>
 
     <div class="grp">
@@ -123,20 +114,12 @@
     <div class="grp">
       <div class="grp-title">FREQUENCY</div>
       <div class="row">
-        <input id="freqEntry" class="freq-entry" placeholder="e.g. 432.100" />
+        <input id="freqEntry" class="freq-entry" inputmode="decimal" placeholder="MHz, e.g. 14.074" />
         <button class="key" id="freqSet">SET</button>
       </div>
       <div class="row step-row">
         <span class="step-label">STEP</span>
-        <select id="step">
-          <option value="10">10 Hz</option>
-          <option value="100">100 Hz</option>
-          <option value="1000">1 kHz</option>
-          <option value="5000">5 kHz</option>
-          <option value="10000">10 kHz</option>
-          <option value="12500">12.5 kHz</option>
-          <option value="25000" selected>25 kHz</option>
-        </select>
+        <select id="step"></select>
       </div>
     </div>
 
@@ -167,8 +150,8 @@
       <div class="mic-meter"><span>MIC</span><div class="mic-bar"><div class="mic-bar-fill" id="micLevel"></div></div></div>
       <label class="sl"><span>VOL</span><input type="range" min="0" max="100" id="vol" value="80"></label>
       <div class="audio-note">RX plays radio audio. Mic streams to the radio's
-        modulator — it transmits only when you key <b>PTT</b> (or <b>VOX</b>) and
-        the radio's <b>MOD Input = LAN</b>.</div>
+        modulator — it transmits only when you key <b>PTT</b> (or <b>VOX</b>).
+        PTT auto-drops after the failsafe time-out.</div>
     </div>
   </section>
 </main>

@@ -96,7 +96,7 @@ class SerialTransport(Transport):
 class SimTransport(Transport):
     """A synthetic IC-9700. Responds to CI-V commands and streams a scope."""
 
-    def __init__(self, fps: float = 20.0) -> None:
+    def __init__(self, profile=None, fps: float = 20.0) -> None:
         self._on_bytes: Optional[Callable[[bytes], None]] = None
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
@@ -104,9 +104,10 @@ class SimTransport(Transport):
         self._reader = civ.FrameReader()
         self.fps = fps
         self._t0 = time.time()
+        self._civ_addr = profile.civ_addr if profile is not None else civ.DEFAULT_RADIO_ADDR
 
         # simulated radio state
-        self.freq = 144_200_000
+        self.freq = profile.default_freq if profile is not None else 144_200_000
         self.mode = 0x01           # USB
         self.filt = 0x01           # FIL1
         self.span = 50_000         # full span Hz (±25k)
@@ -141,7 +142,7 @@ class SimTransport(Transport):
         # reply travels radio -> controller (to=E0, from=A2)
         frame = civ.build(cmd, sub, data,
                           radio_addr=civ.DEFAULT_CTRL_ADDR,
-                          ctrl_addr=civ.DEFAULT_RADIO_ADDR)
+                          ctrl_addr=self._civ_addr)
         if self._on_bytes:
             self._on_bytes(frame)
 
@@ -182,7 +183,7 @@ class SimTransport(Transport):
                 else:
                     self._emit(0x16, s, bytes([self.funcs.get(s, 0)]))
             elif c == 0x19:                                 # read radio id
-                self._emit(0x19, 0x00, bytes([civ.DEFAULT_RADIO_ADDR]))
+                self._emit(0x19, 0x00, bytes([self._civ_addr]))
             elif c == 0x18:                                 # power on/off
                 self._ok()
             elif c == 0x27:                                 # scope control

@@ -1,3 +1,3 @@
-"""Icom WebOp backend package (IC-9700)."""
+"""Radio WebOp backend package — multi-radio Icom CI-V control panel."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

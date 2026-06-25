@@ -157,6 +157,9 @@ select,input,.baud{
 .audio-grp .key.active{background:linear-gradient(180deg,#1ec0ff,#1488c0);color:#04121f;border-color:#1ec0ff}
 .audio-note{font-size:10px;color:var(--txt-dim);line-height:1.35;margin-top:7px}
 .audio-note b{color:var(--amber)}
+.mic-meter{display:grid;grid-template-columns:34px 1fr;align-items:center;gap:8px;font-size:11px;color:var(--txt-dim);margin-bottom:7px}
+.mic-bar{height:10px;background:#06222f;border:1px solid #0d3346;border-radius:3px;overflow:hidden}
+.mic-bar-fill{height:100%;width:0%;background:linear-gradient(90deg,var(--green) 0%,var(--green) 60%,var(--amber) 80%,var(--red) 100%);transition:width .07s linear}
 
 /* sliders */
 .sliders{display:flex;flex-direction:column;gap:7px}

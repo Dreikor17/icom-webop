@@ -351,15 +351,19 @@
     micSink = audioCtx.createGain(); micSink.gain.value = 0;   // silent sink (no mic monitor)
     const inRate = audioCtx.sampleRate, outRate = 16000, ratio = inRate / outRate;
     micProc.onaudioprocess = (e) => {
-      if (!micOn || !ws || ws.readyState !== 1) return;
+      if (!micOn) return;
       const input = e.inputBuffer.getChannelData(0);
       const outLen = Math.floor(input.length / ratio);
       const out = new Int16Array(outLen);
+      let peak = 0;
       for (let i = 0; i < outLen; i++) {
         const s = input[(i * ratio) | 0];
+        const a = s < 0 ? -s : s; if (a > peak) peak = a;
         out[i] = s < -1 ? -32768 : s > 1 ? 32767 : (s * 32767) | 0;
       }
-      ws.send(out.buffer);
+      const ml = $("micLevel");
+      if (ml) ml.style.width = Math.min(100, Math.round(Math.sqrt(peak) * 100)) + "%";   // perceptual level
+      if (ws && ws.readyState === 1) ws.send(out.buffer);
     };
     micSrc.connect(micProc); micProc.connect(micSink); micSink.connect(audioCtx.destination);
     micOn = true; return true;
@@ -369,6 +373,7 @@
     for (const n of [micProc, micSrc, micSink]) { try { n && n.disconnect(); } catch (_) {} }
     if (micStream) micStream.getTracks().forEach(t => t.stop());
     micProc = micSrc = micSink = micStream = null;
+    const ml = $("micLevel"); if (ml) ml.style.width = "0%";
   }
 
   $("audioBtn").onclick = () => {

@@ -51,16 +51,20 @@ class Radio:
         self._lanmod_orig: Optional[int] = None      # original LAN MOD Level (for restore)
         self._mod_managed = False
         self._ptt_deadline: Optional[float] = None   # PTT failsafe deadline (monotonic)
+        self._suppress_poll = False                  # mute panel reads during the connect band-cycle
+        self._switch_at = 0.0                         # monotonic time of the last MAIN/SUB switch
 
         self.state = self._fresh_state()
 
     def _fresh_state(self) -> dict:
+        p = self.profile
+        sub_freq = p.bands[1].default if (p.dual_watch and len(p.bands) > 1) else p.default_freq
         return {
             "connected": False,
             "transport": None,
-            "radio": self.profile.id,
-            "radio_name": self.profile.name,
-            "freq": self.profile.default_freq,
+            "radio": p.id,
+            "radio_name": p.name,
+            "freq": p.default_freq,
             "mode": 0x01,
             "mode_name": "USB",
             "filter": 1,
@@ -74,6 +78,19 @@ class Radio:
             "af": 128, "rf": 200, "sql": 0, "rfpwr": 0,
             "ptt": False, "ptt_tot": PTT_TIMEOUT,
             "audio": False,
+            # dual-watch (IC-9700 MAIN/SUB receivers); single-rx radios use main only
+            "dual_watch": p.dual_watch,
+            "active_band": "main",
+            "main": {"freq": p.default_freq, "mode_name": "USB", "filter_name": "FIL1", "smeter": 0, "smeter_s": "S0"},
+            "sub":  {"freq": sub_freq, "mode_name": "FM", "filter_name": "FIL1", "smeter": 0, "smeter_s": "S0"},
+            # multi-meter (S live; TX meters wired for M3)
+            "meter": "S",
+            "meter_val": 0,
+            "meter_max": civ.METER_MAX,
+            "meter_keys": civ.METER_KEYS,
+            # core RX controls
+            "preamp": 0, "att": 0, "lock": False,
+            "has_preamp": p.has_preamp, "has_att": p.has_att,
         }
 
     def _b(self, cmd: int, sub: Optional[int] = None, data: bytes = b"") -> bytes:
@@ -159,18 +176,21 @@ class Radio:
         if not bands:
             self._write(self._b(0x14, 0x0A, civ.level_to_bcd(0)))
         else:
-            self._write(self._b(0x03))
-            time.sleep(0.3)
-            orig = self.state["freq"]
-            for f in bands:
-                if not self.state["connected"]:
-                    return
-                self._write(self._b(0x05, None, civ.freq_to_bcd(f)))
-                time.sleep(0.1)
-                self._write(self._b(0x14, 0x0A, civ.level_to_bcd(0)))
-                time.sleep(0.1)
-            self._write(self._b(0x05, None, civ.freq_to_bcd(orig)))   # restore freq
-            self.state["freq"] = orig
+            orig = self.state["freq"]                     # already read at connect
+            self._suppress_poll = True                    # mute panel reads during the band-cycle
+            try:
+                for f in bands:
+                    if not self.state["connected"]:
+                        return
+                    self._write(self._b(0x05, None, civ.freq_to_bcd(f)))
+                    time.sleep(0.1)
+                    self._write(self._b(0x14, 0x0A, civ.level_to_bcd(0)))
+                    time.sleep(0.1)
+                self._write(self._b(0x05, None, civ.freq_to_bcd(orig)))   # restore freq
+                self.state["freq"] = orig
+                self.state[self.state["active_band"]]["freq"] = orig
+            finally:
+                self._suppress_poll = False
         self.state["rfpwr"] = 0
         self._emit_state()
 
@@ -228,11 +248,15 @@ class Radio:
                 self.on_scope(sweep)
             return
         if c in (0x03, 0x00):                            # freq read / transceive
+            if time.monotonic() - self._switch_at < 0.3:
+                return                                   # ignore stale reads right after a band switch
             f = civ.bcd_to_freq(self._payload(s, d))
             if f and f != self.state["freq"]:
                 self.state["freq"] = f
                 changed = True
         elif c in (0x04, 0x01):                          # mode read / transceive
+            if time.monotonic() - self._switch_at < 0.3:
+                return
             p = self._payload(s, d)
             if p:
                 self.state["mode"] = p[0]
@@ -247,11 +271,33 @@ class Radio:
             if key:
                 self.state[key] = val
                 changed = True
-        elif c == 0x15 and s == 0x02:                    # S-meter
+        elif c == 0x15:                                  # multi-meter
             lvl = civ.bcd_to_level(d)
-            self.state["smeter"] = lvl
-            self.state["smeter_s"] = smeter_label(lvl)
-            changed = True
+            if s == 0x02:                                # S-meter (active band)
+                ab = self.state["active_band"]
+                self.state["smeter"] = lvl
+                self.state["smeter_s"] = smeter_label(lvl)
+                self.state[ab]["smeter"] = lvl
+                self.state[ab]["smeter_s"] = smeter_label(lvl)
+                if self.state["meter"] == "S":
+                    self.state["meter_val"] = lvl
+                changed = True
+            elif civ.METER_SUBS.get(self.state["meter"]) == s:
+                self.state["meter_val"] = lvl
+                changed = True
+        elif c == 0x07 and s == 0xD2:                    # main-band selection state (01 = MAIN operating)
+            if d:
+                self.state["active_band"] = "main" if d[-1] == 1 else "sub"
+                changed = True
+        elif c == 0x11:                                  # attenuator (value rides in the sub byte)
+            if s is not None:
+                self.state["att"] = s
+                changed = True
+        elif c == 0x16:                                  # functions
+            if s == 0x02 and d:                          # preamp (P.AMP)
+                self.state["preamp"] = d[0]; changed = True
+            elif s == 0x50 and d:                        # dial lock
+                self.state["lock"] = bool(d[0]); changed = True
         elif c == 0x1A and s == 0x05 and len(d) >= 3:    # MOD Input read response
             dataoff, level = self.profile.mod_dataoff, self.profile.lan_mod_level
             if d[0] == dataoff[0] and d[1] == dataoff[1] and self._modsrc_orig is None:
@@ -280,10 +326,14 @@ class Radio:
             # PTT failsafe: never leave the radio keyed past the time-out
             if self.state["ptt"] and self._ptt_deadline and time.monotonic() >= self._ptt_deadline:
                 self.set_ptt(False)
-            self._write(self._b(0x15, 0x02))             # S-meter
-            if tick % 8 == 0:                            # ~1.2s: catch panel changes
+            self._write(self._b(0x15, 0x02))             # S-meter (active band)
+            if self.state["meter"] != "S":               # selected TX meter for the big bar
+                self._write(self._b(0x15, civ.METER_SUBS[self.state["meter"]]))
+            if tick % 8 == 0 and not self._suppress_poll:   # ~1.2s: catch panel changes
                 self._write(self._b(0x03))
                 self._write(self._b(0x04))
+                if self.state["dual_watch"]:             # is MAIN the operating band?
+                    self._write(self._b(0x07, 0xD2, b"\x00"))
             tick += 1
             time.sleep(0.15)
 
@@ -312,6 +362,48 @@ class Radio:
 
     def select_vfo(self, code: int) -> None:
         self._write(self._b(0x07, code))
+
+    def select_band(self, band: str) -> None:
+        """Select MAIN or SUB as the operating band (IC-9700 dual watch). The radio
+        only reports the operating band over CI-V, so the other band keeps its
+        last-known values until it is selected."""
+        if band not in ("main", "sub"):
+            return
+        self._write(self._b(0x07, 0xD0 if band == "main" else 0xD1))
+        self.state["active_band"] = band
+        self._switch_at = time.monotonic()                # ignore stale freq/mode reads briefly
+        self._write(self._b(0x07, 0xD2, b"\x00"))         # confirm the new operating band
+        b = self.state[band]                              # reflect target band immediately
+        self.state["freq"] = b["freq"]
+        self.state["mode_name"] = b["mode_name"]
+        self.state["filter_name"] = b["filter_name"]
+        self.state["smeter"] = b["smeter"]
+        self.state["smeter_s"] = b["smeter_s"]
+        self._emit_state()
+
+    def set_meter(self, key: str) -> None:
+        if key in civ.METER_SUBS:
+            self.state["meter"] = key
+            self.state["meter_val"] = self.state["smeter"] if key == "S" else 0
+            self._write(self._b(0x15, civ.METER_SUBS[key]))
+            self._emit_state()
+
+    def set_preamp(self, on: bool) -> None:
+        v = 1 if on else 0
+        self.state["preamp"] = v
+        self._write(self._b(0x16, 0x02, bytes([v])))
+        self._emit_state()
+
+    def set_att(self, on: bool) -> None:
+        v = 0x10 if on else 0x00                          # IC-9700 ATT: on (10 dB) / off
+        self.state["att"] = v
+        self._write(self._b(0x11, v))
+        self._emit_state()
+
+    def set_lock(self, on: bool) -> None:
+        self.state["lock"] = bool(on)
+        self._write(self._b(0x16, 0x50, bytes([1 if on else 0])))
+        self._emit_state()
 
     def set_level(self, sub: int, value: int) -> None:
         key = {0x01: "af", 0x02: "rf", 0x03: "sql", 0x0A: "rfpwr"}.get(sub)
@@ -344,6 +436,17 @@ class Radio:
         self._emit_state()
 
     # -- state notify --------------------------------------------------------
+    def _mirror_active(self) -> None:
+        """Keep state[active_band] in step with the live top-level (active) fields,
+        so MAIN/SUB both stay current regardless of which band is operating."""
+        b = self.state.get(self.state.get("active_band", "main"))
+        if isinstance(b, dict):
+            b["freq"] = self.state["freq"]
+            b["mode_name"] = self.state["mode_name"]
+            b["filter_name"] = self.state["filter_name"]
+
     def _emit_state(self) -> None:
+        self._mirror_active()
         if self.on_state:
-            self.on_state(dict(self.state))
+            s = self.state
+            self.on_state({**s, "main": dict(s["main"]), "sub": dict(s["sub"])})

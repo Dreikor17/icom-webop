@@ -106,16 +106,22 @@ class SimTransport(Transport):
         self._t0 = time.time()
         self._civ_addr = profile.civ_addr if profile is not None else civ.DEFAULT_RADIO_ADDR
 
-        # simulated radio state
-        self.freq = profile.default_freq if profile is not None else 144_200_000
-        self.mode = 0x01           # USB
-        self.filt = 0x01           # FIL1
+        # simulated radio state — dual-band (MAIN/SUB) for dual-watch radios
+        main_freq = profile.default_freq if profile is not None else 144_200_000
+        self.dual = bool(profile is not None and getattr(profile, "dual_watch", False))
+        sub_freq = profile.bands[1].default if (self.dual and len(profile.bands) > 1) else main_freq
+        self.active = "main"
+        self.b = {
+            "main": {"freq": main_freq, "mode": 0x01, "filt": 0x01},   # USB
+            "sub":  {"freq": sub_freq, "mode": 0x05, "filt": 0x01},    # FM
+        }
+        self.att = 0x00
         self.span = 50_000         # full span Hz (±25k)
         self.scope_center = True   # center vs fixed
         self.scope_on = False
         self.scope_out = False
         self.levels = {0x01: 128, 0x02: 200, 0x03: 0, 0x0A: 0}  # AF/RF/SQL/RFpwr (power 0%)
-        self.funcs = {0x02: 0x01}  # preamp on
+        self.funcs = {0x02: 0x00, 0x50: 0x00}  # preamp off, dial-lock off
 
     @property
     def name(self) -> str:
@@ -152,22 +158,41 @@ class SimTransport(Transport):
     def _handle(self, fr: civ.Frame) -> None:
         c, s, d = fr.cmd, fr.sub, fr.data
         with self._lock:
-            if c == 0x03:                                   # read freq
-                self._emit(0x03, None, civ.freq_to_bcd(self.freq))
-            elif c == 0x04:                                 # read mode
-                self._emit(0x04, None, bytes([self.mode, self.filt]))
-            elif c == 0x05:                                 # set freq
-                self.freq = civ.bcd_to_freq(bytes([s]) + d if s is not None else d)
+            act = self.b[self.active]
+            if c == 0x03:                                   # read freq (active band)
+                self._emit(0x03, None, civ.freq_to_bcd(act["freq"]))
+            elif c == 0x04:                                 # read mode (active band)
+                self._emit(0x04, None, bytes([act["mode"], act["filt"]]))
+            elif c == 0x05:                                 # set freq (active band)
+                act["freq"] = civ.bcd_to_freq(bytes([s]) + d if s is not None else d)
                 self._ok()
             elif c == 0x00:                                 # set freq (transceive)
-                self.freq = civ.bcd_to_freq(bytes([s]) + d if s is not None else d)
-            elif c == 0x06:                                 # set mode
+                act["freq"] = civ.bcd_to_freq(bytes([s]) + d if s is not None else d)
+            elif c == 0x06:                                 # set mode (active band)
                 if s is not None:
-                    self.mode = s
-                    self.filt = d[0] if d else 0x01
+                    act["mode"] = s
+                    act["filt"] = d[0] if d else 0x01
                 self._ok()
-            elif c == 0x07:                                 # VFO select
-                self._ok()
+            elif c == 0x07:                                 # VFO / MAIN-SUB band select
+                if s == 0xD0:
+                    self.active = "main"; self._ok()
+                elif s == 0xD1:
+                    self.active = "sub"; self._ok()
+                elif s == 0xD2:                             # read main/sub selection state
+                    if not d:
+                        self._emit(civ.NG, None)            # malformed: needs a 00/01 selector
+                    else:
+                        sel = d[0]                          # 00 = query main, 01 = query sub
+                        queried = "main" if sel == 0x00 else "sub"
+                        status = 0x01 if self.active == queried else 0x00
+                        self._emit(0x07, 0xD2, bytes([sel, status]))
+                else:
+                    self._ok()
+            elif c == 0x11:                                 # attenuator
+                if s is not None:                           # set (value in sub)
+                    self.att = s; self._ok()
+                else:                                       # read
+                    self._emit(0x11, self.att)
             elif c == 0x14:                                 # levels
                 if d:                                       # set
                     self.levels[s] = civ.bcd_to_level(d)
@@ -223,7 +248,7 @@ class SimTransport(Transport):
         while not self._stop.is_set():
             with self._lock:
                 run = self.scope_on and self.scope_out
-                center = self.freq
+                center = self.b[self.active]["freq"]
                 span = self.span
             if run:
                 self._emit_scope(center, span)

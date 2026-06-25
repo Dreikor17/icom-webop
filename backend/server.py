@@ -214,6 +214,16 @@ def _handle_cmd(cmd: dict) -> None:
             radio.set_span(int(cmd["span"]))
         elif action == "scope_mode":
             radio.set_scope_mode(bool(cmd["center"]))
+        elif action == "select_band":
+            radio.select_band(str(cmd["band"]))
+        elif action == "set_meter":
+            radio.set_meter(str(cmd["meter"]))
+        elif action == "preamp":
+            radio.set_preamp(bool(cmd["on"]))
+        elif action == "att":
+            radio.set_att(bool(cmd["on"]))
+        elif action == "lock":
+            radio.set_lock(bool(cmd["on"]))
         elif action == "ptt":
             radio.set_ptt(bool(cmd["tx"]))
     except (KeyError, ValueError, TypeError):

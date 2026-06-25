@@ -74,14 +74,24 @@
   // ---- state -> UI ----
   function updateState(s) {
     state = s;
-    $("freq").textContent = formatFreq(s.freq);
-    $("modeReadout").textContent = s.mode_name || "";
-    $("filtReadout").textContent = s.filter_name || "";
-    $("vfoLetter").textContent = "A";
+    // dual-watch band readout (MAIN/SUB); single-rx radios show MAIN only
+    $("rowSub").style.display = s.dual_watch ? "" : "none";
+    fillBand("main", s.main);
+    fillBand("sub", s.sub);
+    $("rowMain").classList.toggle("active", s.active_band !== "sub");
+    $("rowSub").classList.toggle("active", s.active_band === "sub");
 
-    const pct = Math.min(100, (s.smeter || 0) / 240 * 100);
-    $("meterFill").style.width = pct + "%";
-    $("meterVal").textContent = s.smeter_s || "S0";
+    // multi-meter (S live; TX meters wired for M3)
+    const isS = (s.meter || "S") === "S";
+    const mmax = isS ? 240 : (s.meter_max || 255);
+    $("meterFill").style.width = Math.min(100, (s.meter_val || 0) / mmax * 100) + "%";
+    $("meterVal").textContent = isS ? (s.smeter_s || "S0") : (s.meter + " " + (s.meter_val || 0));
+    setActive(".m-btn", b => b.dataset.meter === (s.meter || "S"));
+
+    // RX toggles
+    $("preampBtn").classList.toggle("on", (s.preamp || 0) > 0);
+    $("attBtn").classList.toggle("on", (s.att || 0) > 0);
+    $("lockBtn").classList.toggle("on", !!s.lock);
 
     // connection
     const on = !!s.connected;
@@ -124,6 +134,13 @@
     scope.drawOverlay();
   }
 
+  function fillBand(name, b) {
+    if (!b) return;
+    $(name + "Freq").textContent = formatFreq(b.freq);
+    $(name + "Mode").textContent = b.mode_name || "";
+    $(name + "Fil").textContent = b.filter_name || "";
+  }
+
   function bandOf(hz) {
     if (!currentRadio) return "";
     for (const b of currentRadio.bands) if (hz >= b.lo && hz <= b.hi) return b.name;
@@ -139,6 +156,15 @@
     if (!b) return;
     const act = b.dataset.act;
     if (act === "band") send({ action: "band", band: b.dataset.band });
+    else if (act === "select_band") send({ action: "select_band", band: b.dataset.band });
+    else if (act === "meter") send({ action: "set_meter", meter: b.dataset.meter });
+    else if (act === "toggle") {
+      const fn = b.dataset.fn;
+      const on = fn === "att" ? !((state.att || 0) > 0)
+               : fn === "preamp" ? !((state.preamp || 0) > 0)
+               : !state.lock;
+      send({ action: fn, on });
+    }
     else if (act === "mode") send({ action: "set_mode", mode: b.dataset.mode });
     else if (act === "filter") send({ action: "set_filter", filter: +b.dataset.filter });
     else if (act === "vfo") send({ action: "vfo", code: +b.dataset.code });
@@ -306,6 +332,10 @@
       if (s.v === p.default_step) o.selected = true; st.appendChild(o);
     }
     step = p.default_step;
+    // dual-watch + RX-control availability per radio
+    const sub = $("rowSub"); if (sub) sub.style.display = p.dual_watch ? "" : "none";
+    const pa = $("preampBtn"); if (pa) pa.style.display = p.has_preamp ? "" : "none";
+    const at = $("attBtn"); if (at) at.style.display = p.has_att ? "" : "none";
   }
   $("radioSel").addEventListener("change", () => { renderRadio(selectedRadio()); saveConn(); });
 

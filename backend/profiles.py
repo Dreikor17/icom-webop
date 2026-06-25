@@ -34,6 +34,9 @@ class RadioProfile:
     default_freq: int             # simulator / initial frequency
     steps: list                   # [(value_hz, label), ...]
     default_step: int
+    dual_watch: bool = False      # True for dual-receiver radios (IC-9700 MAIN/SUB)
+    has_preamp: bool = True        # P.AMP available
+    has_att: bool = True           # attenuator available
 
     def band_default(self, name: str) -> Optional[int]:
         for b in self.bands:
@@ -49,6 +52,9 @@ class RadioProfile:
             "steps": [{"v": v, "label": lbl} for v, lbl in self.steps],
             "default_step": self.default_step,
             "default_freq": self.default_freq,
+            "dual_watch": self.dual_watch,
+            "has_preamp": self.has_preamp,
+            "has_att": self.has_att,
         }
 
 
@@ -76,6 +82,7 @@ IC9700 = RadioProfile(
     steps=[(10, "10 Hz"), (100, "100 Hz"), (1000, "1 kHz"), (5000, "5 kHz"),
            (10000, "10 kHz"), (12500, "12.5 kHz"), (25000, "25 kHz")],
     default_step=25000,
+    dual_watch=True,                # MAIN + SUB receivers
 )
 
 IC7300MK2 = RadioProfile(

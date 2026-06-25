@@ -45,6 +45,21 @@ MODE_CODES = {v: k for k, v in MODES.items()}
 # Filter slot (command 06 byte 2)
 FILTERS = {0x01: "FIL1", 0x02: "FIL2", 0x03: "FIL3"}
 
+# Multi-meter readouts (command 15 <sub>): (key, sub, label)
+METERS = [
+    ("S",    0x02, "S"),       # S-meter (RX)
+    ("PO",   0x11, "PO"),      # power output
+    ("SWR",  0x12, "SWR"),
+    ("ALC",  0x13, "ALC"),
+    ("COMP", 0x14, "COMP"),
+    ("Vd",   0x15, "Vd"),      # drain voltage
+    ("Id",   0x16, "Id"),      # drain current
+]
+METER_SUBS = {k: sub for k, sub, _ in METERS}
+METER_KEYS = [k for k, _, _ in METERS]
+SMETER_MAX = 241               # S-meter full scale: 0=S0, 120=S9, 241=S9+60
+METER_MAX = 255                # other meters: raw 0..255 for the bar (refine in M3)
+
 # Span settings (command 27 15) -> full span in Hz.  Data column from the
 # reference guide is the value in Hz of the *full* displayed span.
 SPANS_HZ = {

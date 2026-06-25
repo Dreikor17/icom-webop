@@ -35,16 +35,17 @@
 <main class="radio">
   <!-- ===================== DISPLAY (TFT) ===================== -->
   <section class="display">
-    <div class="readout">
-      <div class="vfo">
-        <span class="vfo-tag">VFO</span><span id="vfoLetter">A</span>
+    <div class="bands" id="bands">
+      <div class="bandrow active" data-act="select_band" data-band="main" id="rowMain" title="Operate the MAIN band">
+        <span class="band-tag">MAIN</span>
+        <span class="band-freq" id="mainFreq">—</span>
+        <span class="band-meta"><b class="band-mode" id="mainMode">USB</b><i class="band-fil" id="mainFil">FIL1</i></span>
+        <span class="tx" id="txTag">RX</span>
       </div>
-      <div class="freq" id="freq">—</div>
-      <div class="freq-units">MHz</div>
-      <div class="modebox">
-        <div class="mode" id="modeReadout">USB</div>
-        <div class="filt" id="filtReadout">FIL1</div>
-        <div class="tx" id="txTag">RX</div>
+      <div class="bandrow" data-act="select_band" data-band="sub" id="rowSub" title="Operate the SUB band">
+        <span class="band-tag">SUB</span>
+        <span class="band-freq" id="subFreq">—</span>
+        <span class="band-meta"><b class="band-mode" id="subMode">FM</b><i class="band-fil" id="subFil">FIL1</i></span>
       </div>
     </div>
 
@@ -55,6 +56,15 @@
       </div>
       <div class="meter-bar"><div class="meter-fill" id="meterFill"></div></div>
       <div class="meter-val" id="meterVal">S0</div>
+      <div class="meter-sel" id="meterSel">
+        <button class="m-btn active" data-act="meter" data-meter="S">S</button>
+        <button class="m-btn" data-act="meter" data-meter="PO">PO</button>
+        <button class="m-btn" data-act="meter" data-meter="SWR">SWR</button>
+        <button class="m-btn" data-act="meter" data-meter="ALC">ALC</button>
+        <button class="m-btn" data-act="meter" data-meter="COMP">COMP</button>
+        <button class="m-btn" data-act="meter" data-meter="Vd">Vd</button>
+        <button class="m-btn" data-act="meter" data-meter="Id">Id</button>
+      </div>
     </div>
 
     <div class="scope" id="scopeWrap">
@@ -108,6 +118,15 @@
         <button class="key" data-act="vfo" data-code="1">B</button>
         <button class="key" data-act="vfo" data-code="160">A=B</button>
         <button class="key" data-act="vfo" data-code="176">SWAP</button>
+      </div>
+    </div>
+
+    <div class="grp" id="rxGrp">
+      <div class="grp-title">RX</div>
+      <div class="row">
+        <button class="key tog" data-act="toggle" data-fn="preamp" id="preampBtn">P.AMP</button>
+        <button class="key tog" data-act="toggle" data-fn="att" id="attBtn">ATT</button>
+        <button class="key tog" data-act="toggle" data-fn="lock" id="lockBtn">LOCK</button>
       </div>
     </div>
 

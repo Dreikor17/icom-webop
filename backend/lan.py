@@ -112,11 +112,10 @@ class _Stream:
     # -- socket / sids -------------------------------------------------------
     def open(self) -> None:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            self.sock.bind(("", self.port))
-        except OSError:
-            self.sock.bind(("", 0))
+        # Use an ephemeral local port. (kappanhang binds local == remote port,
+        # but on Windows the radio won't answer a source port equal to its own
+        # listening port — it just drops us. wfview uses ephemeral ports too.)
+        self.sock.bind(("", 0))
         self.sock.connect((self.host, self.port))
         ip, lport = self.sock.getsockname()[0], self.sock.getsockname()[1]
         if ip == "0.0.0.0":
@@ -376,6 +375,16 @@ class LanTransport(Transport):
             self._on_stream_error(f"serial write: {exc}")
 
     def stop(self) -> None:
+        # Proper logout: deauth the control session so the radio releases it
+        # immediately. Without this the radio holds the session until its idle
+        # timeout and rejects the next login ("auth failed, try rebooting").
+        c = self._ctrl
+        if c is not None and c.sock is not None and self._auth_id != b"\x00" * 6:
+            try:
+                self._send_auth(c, 0x01)
+                time.sleep(0.5)        # let the radio process the deauth / any retransmit
+            except Exception:  # noqa: BLE001
+                pass
         for s in (self._serial, self._audio, self._ctrl):
             if s:
                 try:
@@ -527,10 +536,13 @@ class LanTransport(Transport):
             self._error = f"audio open failed (non-fatal): {exc}"
 
     def _on_serial_packet(self, r: bytes) -> None:
-        # CI-V data packet: marker 0xc1 at [16], data length at [17], data at [21:]
-        if len(r) >= 22 and r[16] == 0xC1 and ((r[0] - 0x15) & 0xFF) == r[17]:
+        # CI-V data packet: 0xc1 marker at [16], CI-V bytes from [21] to the end.
+        # The data-length byte at [17] is only the low byte and overflows for big
+        # frames (e.g. ~497-byte scope sweeps), so take everything to the packet
+        # end (the UDP packet length == 21 + CI-V length).
+        if len(r) >= 22 and r[16] == 0xC1:
             if self._on_bytes:
-                self._on_bytes(bytes(r[21:21 + r[17]]))
+                self._on_bytes(bytes(r[21:]))
 
     def _on_stream_error(self, msg: str) -> None:
         if self._error is None:

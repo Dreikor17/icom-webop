@@ -139,8 +139,12 @@ class Radio:
         if c == 0x27 and s == 0x00:
             sweep = self._scope.feed(d)
             if sweep and self.on_scope:
-                if sweep.center_hz:
-                    self.state["freq"] = sweep.center_hz
+                # NOTE: do NOT set state["freq"] from sweep.center_hz. The scope
+                # center is the *display* center (filter-center mode offsets it
+                # from the carrier by ~1 kHz), so using it as the tuned frequency
+                # makes the readout flicker against the 0x03 poll. The tuned freq
+                # comes only from 0x03 / 0x00 / our own set_freq; the scope center
+                # is carried separately (for the X-axis) in the scope frame.
                 if sweep.span_hz:
                     self.state["span"] = sweep.span_hz
                     self.state["span_label"] = civ.SPAN_LABELS.get(sweep.span_hz, "")

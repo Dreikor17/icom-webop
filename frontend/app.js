@@ -102,10 +102,11 @@
     setActive(".mode", b => b.dataset.mode === s.mode_name);
     setActive(".filt", b => b.dataset.filter === String(s.filter));
 
-    // level sliders (don't fight an active drag)
+    // level sliders (don't fight an active drag) + value readouts
     for (const t of ["af", "rf", "sql", "rfpwr"]) {
       const el = $(t);
       if (el && document.activeElement !== el && s[t] != null) el.value = s[t];
+      if (s[t] != null) $(t + "Val").textContent = fmtLevel(t, s[t]);
     }
 
     // keep overlay tracking between sweeps
@@ -158,9 +159,13 @@
   // step select
   $("step").onchange = () => { step = +$("step").value; };
 
-  // level sliders
+  // level sliders (power shown as %, others 0–255)
+  function fmtLevel(t, v) { return t === "rfpwr" ? Math.round(v / 255 * 100) + "%" : "" + v; }
   for (const t of ["af", "rf", "sql", "rfpwr"]) {
-    $(t).addEventListener("input", e => send({ action: "set_level", target: t, value: +e.target.value }));
+    $(t).addEventListener("input", e => {
+      send({ action: "set_level", target: t, value: +e.target.value });
+      $(t + "Val").textContent = fmtLevel(t, +e.target.value);
+    });
   }
 
   // PTT momentary
@@ -234,7 +239,8 @@
         o.textContent = `${p.device} — ${p.description}`.slice(0, 48);
         sel.insertBefore(o, lanOpt);
       }
-    } catch (_) {}
+      return j;
+    } catch (_) { return null; }
   }
   function updateConnFields() {
     const sel = $("transport");
@@ -244,23 +250,48 @@
     $("lanFields").hidden = sel.value !== "lan";
   }
   $("transport").addEventListener("change", updateConnFields);
-  $("connectBtn").onclick = async () => {
-    const sel = $("transport");
-    const opt = sel.options[sel.selectedIndex];
-    let body;
-    if (opt.value === "sim") body = { transport: "sim" };
-    else if (opt.value === "lan") body = {
+
+  const CONN_KEY = "icomwebop.conn";
+  function buildConnectBody() {
+    const sel = $("transport"), opt = sel.options[sel.selectedIndex];
+    if (!opt || opt.value === "sim") return { transport: "sim" };
+    if (opt.value === "lan") return {
       transport: "lan", host: $("lanHost").value.trim(), port: 50001,
       user: $("lanUser").value, password: $("lanPass").value,
     };
-    else body = { transport: "serial", port: opt.value, baud: +$("baud").value || 115200 };
-    if (opt.value === "lan" && !body.host) { alert("Enter the radio's IP address."); return; }
+    return { transport: "serial", port: opt.value, baud: +$("baud").value || 115200 };
+  }
+  function saveConn() {
+    try {
+      localStorage.setItem(CONN_KEY, JSON.stringify({
+        transport: $("transport").value, host: $("lanHost").value,
+        user: $("lanUser").value, pass: $("lanPass").value, baud: $("baud").value,
+      }));
+    } catch (_) {}
+  }
+  function restoreConnFields() {
+    let s = null; try { s = JSON.parse(localStorage.getItem(CONN_KEY) || "null"); } catch (_) {}
+    if (!s) return null;
+    if (s.host) $("lanHost").value = s.host;
+    if (s.user) $("lanUser").value = s.user;
+    if (s.pass) $("lanPass").value = s.pass;
+    if (s.baud) $("baud").value = s.baud;
+    return s;
+  }
+  async function doConnect(body) {
     const btn = $("connectBtn"); btn.textContent = "Connecting…"; btn.disabled = true;
     try {
       const r = await fetch("/api/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const j = await r.json();
       if (!j.ok) alert("Connect failed: " + (j.error || "unknown"));
-    } finally { btn.textContent = "Connect"; btn.disabled = false; }
+    } catch (e) { alert("Connect error: " + e); }
+    finally { btn.textContent = "Connect"; btn.disabled = false; }
+  }
+  $("connectBtn").onclick = () => {
+    const body = buildConnectBody();
+    if (body.transport === "lan" && !body.host) { alert("Enter the radio's IP address."); return; }
+    saveConn();
+    doConnect(body);
   };
   $("disconnectBtn").onclick = () => fetch("/api/disconnect", { method: "POST" });
 
@@ -336,10 +367,16 @@
 
   // ---- boot ----
   step = +$("step").value;
+  const saved = restoreConnFields();
   updateConnFields();
   connectWS();
-  loadPorts().then(() => {
-    // auto-start the simulator so the waterfall is live immediately
-    fetch("/api/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transport: "sim" }) });
+  loadPorts().then((status) => {
+    const sel = $("transport");
+    if (saved && [...sel.options].some(o => o.value === saved.transport)) sel.value = saved.transport;
+    updateConnFields();
+    if (status && status.connected) return;       // server already connected — leave it
+    const body = buildConnectBody();               // else connect to the remembered method
+    if (body.transport === "lan" && !body.host) doConnect({ transport: "sim" });
+    else doConnect(body);
   });
 })();

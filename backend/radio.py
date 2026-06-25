@@ -75,7 +75,7 @@ class Radio:
             "af": 128,
             "rf": 200,
             "sql": 0,
-            "rfpwr": 180,
+            "rfpwr": 0,
             "ptt": False,
             "audio": False,
         }
@@ -120,6 +120,31 @@ class Radio:
         self._poll_thread = threading.Thread(target=self._poll, daemon=True,
                                              name="civ-poll")
         self._poll_thread.start()
+        self._emit_state()
+
+        # safety default: start every band at 0% TX power
+        threading.Thread(target=self._zero_power_all_bands, daemon=True,
+                         name="civ-pwr0").start()
+
+    def _zero_power_all_bands(self) -> None:
+        """Set RF power to 0 on 144/430/1200, then restore the original freq.
+        RF power is per-band and CI-V only addresses the current band, so we
+        briefly visit each band. Receive-only (no PTT)."""
+        self._write(civ.build(0x03))          # ask for the real current freq
+        time.sleep(0.5)
+        if not self.state["connected"]:
+            return
+        orig = self.state["freq"]
+        for f in (145_000_000, 435_000_000, 1_295_000_000):
+            if not self.state["connected"]:
+                return
+            self._write(civ.build(0x05, None, civ.freq_to_bcd(f)))
+            time.sleep(0.1)
+            self._write(civ.build(0x14, 0x0A, civ.level_to_bcd(0)))
+            time.sleep(0.1)
+        self._write(civ.build(0x05, None, civ.freq_to_bcd(orig)))   # restore
+        self.state["freq"] = orig
+        self.state["rfpwr"] = 0
         self._emit_state()
 
     def disconnect(self) -> None:

@@ -113,7 +113,7 @@ class SimTransport(Transport):
         self.scope_center = True   # center vs fixed
         self.scope_on = False
         self.scope_out = False
-        self.levels = {0x01: 128, 0x02: 200, 0x03: 0, 0x0A: 180}  # AF/RF/SQL/RFpwr
+        self.levels = {0x01: 128, 0x02: 200, 0x03: 0, 0x0A: 0}  # AF/RF/SQL/RFpwr (power 0%)
         self.funcs = {0x02: 0x01}  # preamp on
 
     @property

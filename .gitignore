@@ -10,6 +10,9 @@ env/
 docs/*.pdf
 docs/civ_reference*.txt
 
+# downloaded third-party reference source (protocol study only; not part of this project)
+.ref/
+
 # OS / editor
 .DS_Store
 Thumbs.db

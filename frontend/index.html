@@ -15,8 +15,14 @@
     <span id="connlabel" class="connlabel">Disconnected</span>
     <select id="transport" title="Connection">
       <option value="sim">Simulator</option>
+      <option value="lan">LAN (network)</option>
     </select>
-    <input id="baud" type="number" value="115200" title="Baud rate" class="baud" />
+    <input id="baud" type="number" value="115200" title="Baud rate" class="baud" hidden />
+    <span id="lanFields" class="lan-fields" hidden>
+      <input id="lanHost" class="lan-host" placeholder="radio IP (e.g. 192.168.1.50)" title="Radio IP" />
+      <input id="lanUser" class="lan-user" placeholder="net user" title="Network username" />
+      <input id="lanPass" type="password" class="lan-pass" placeholder="password" title="Network password" />
+    </span>
     <button id="connectBtn" class="ctl-btn primary">Connect</button>
     <button id="disconnectBtn" class="ctl-btn">Disconnect</button>
   </div>

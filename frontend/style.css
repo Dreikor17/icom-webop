@@ -48,6 +48,10 @@ select,input,.baud{
   padding:5px 8px;font-family:var(--font);font-size:13px;
 }
 .baud{width:80px}
+.lan-fields{display:inline-flex;gap:6px}
+.lan-host{width:170px}
+.lan-user{width:90px}
+.lan-pass{width:100px}
 .ctl-btn{background:var(--key);color:var(--txt);border:1px solid var(--key-edge);
   border-radius:6px;padding:6px 12px;cursor:pointer;font-size:13px}
 .ctl-btn:hover{background:var(--key-hi)}

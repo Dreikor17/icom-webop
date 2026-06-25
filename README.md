@@ -40,9 +40,15 @@ Key commands used: `05/03` frequency, `06/04` mode+filter, `07` VFO, `14`
 levels, `15` meters, and `27` for the scope (`27 10` scope on, `27 11` data
 output on, `27 14` center/fixed, `27 15` span, `27 00` waveform data).
 
-Today the transport is **USB CI-V** (a COM port). The IC-9700's **LAN** port
-uses Icom's proprietary UDP remote protocol (the one `wfview`/RS-BA1 implement);
-that's on the roadmap as a second transport behind the same interface.
+Two transports are supported behind one interface:
+
+- **USB CI-V** — a COM port.
+- **LAN (network)** — the IC-9700's Ethernet port, speaking Icom's proprietary
+  RS-BA1 UDP protocol (the one `wfview`/RS-BA1 use): three UDP streams — control
+  (50001), CI-V/serial (50002) and audio (50003). The CI-V tunnel over the
+  network is byte-identical to USB, so full control + the scope/waterfall work
+  over LAN with no change to the layers above the transport. Audio is opened but
+  not yet decoded (a later phase).
 
 ## Run it (Windows)
 
@@ -54,12 +60,22 @@ run.bat
 Then open <http://localhost:8700>. It auto-starts the **Simulator** so the
 waterfall is live immediately.
 
-To control a real IC-9700 over USB:
+To control a real IC-9700 over **USB**:
 
 1. Connect the radio by USB and set **SET → Connectors → USB (B)/DATA Function
    → CI-V**, note its CI-V address (default `A2`) and baud rate.
 2. In the top bar, pick the radio's **COM port**, set the baud rate, and click
    **Connect**.
+
+To control it over **LAN**:
+
+1. On the radio: **SET → Network → Network Function = ON**, note the **Control
+   Port** (default 50001), and register a **Network User** name + password
+   (SET → Network → Network User1).
+2. Make sure the radio is **on or in standby** (it can't be cold-powered over
+   the network).
+3. In the top bar, choose **LAN (network)**, enter the radio's **IP**, the
+   **network user** and **password**, and click **Connect**.
 
 (From the command line: `python run.py --port 8700`.)
 
@@ -71,6 +87,8 @@ backend/
                 and the 27 00 scope parser/assembler (USB + LAN formats)
   transport.py  SerialTransport (real COM port) + SimTransport (synthetic
                 IC-9700 that speaks CI-V, including USB 11-frame scope sweeps)
+  lan.py        LanTransport — Icom RS-BA1 UDP protocol (control/serial/audio
+                streams, login, keepalives); tunnels CI-V over the network
   radio.py      Radio controller: decodes the inbound stream into live state +
                 scope sweeps, exposes button-level actions, polls meters
   server.py     Starlette/uvicorn app: REST connect/ports + WebSocket that
@@ -87,7 +105,8 @@ interchangeable — everything above `transport.py` is identical for both.
 
 ## Roadmap
 
-- LAN transport (Icom UDP remote protocol) + audio.
+- **Audio over LAN** (RX playback + TX mic) — the audio stream is already opened;
+  next is decoding/encoding LPCM/µLaw and wiring browser Web Audio + mic.
 - Read true IF filter widths (`1A 03`) instead of per-mode defaults.
 - Memory channels, split/duplex + tone, satellite mode (the 9700's dual scope).
 - Per-control menus to cover more of the CI-V command set.
@@ -95,6 +114,10 @@ interchangeable — everything above `transport.py` is identical for both.
 ## Notes
 
 This is an independent project and is not affiliated with or endorsed by Icom.
+The LAN protocol implementation is a clean-room port informed by the
+reverse-engineered, open-source [wfview](https://gitlab.com/eliggett/wfview) and
+[kappanhang](https://github.com/nonoo/kappanhang) projects; there is no official
+Icom network-protocol specification.
 "CI-V" and "IC-9700" are referenced for interoperability only. The CI-V
 Reference Guide PDF is **not** redistributed here — download it from Icom (see
 `docs/README.md`).

@@ -223,29 +223,47 @@
       const r = await fetch("/api/ports");
       const j = await r.json();
       const sel = $("transport");
-      sel.querySelectorAll("option:not([value='sim'])").forEach(o => o.remove());
+      sel.querySelectorAll("option:not([value='sim']):not([value='lan'])").forEach(o => o.remove());
+      const lanOpt = sel.querySelector("option[value='lan']");
       for (const p of j.ports) {
         const o = document.createElement("option");
         o.value = p.device; o.dataset.kind = "serial";
         o.textContent = `${p.device} — ${p.description}`.slice(0, 48);
-        sel.appendChild(o);
+        sel.insertBefore(o, lanOpt);
       }
     } catch (_) {}
   }
+  function updateConnFields() {
+    const sel = $("transport");
+    const opt = sel.options[sel.selectedIndex];
+    const isSerial = opt && opt.dataset.kind === "serial";
+    $("baud").hidden = !isSerial;
+    $("lanFields").hidden = sel.value !== "lan";
+  }
+  $("transport").addEventListener("change", updateConnFields);
   $("connectBtn").onclick = async () => {
     const sel = $("transport");
     const opt = sel.options[sel.selectedIndex];
-    const body = opt.value === "sim"
-      ? { transport: "sim" }
-      : { transport: "serial", port: opt.value, baud: +$("baud").value || 115200 };
-    const r = await fetch("/api/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const j = await r.json();
-    if (!j.ok) alert("Connect failed: " + (j.error || "unknown"));
+    let body;
+    if (opt.value === "sim") body = { transport: "sim" };
+    else if (opt.value === "lan") body = {
+      transport: "lan", host: $("lanHost").value.trim(), port: 50001,
+      user: $("lanUser").value, password: $("lanPass").value,
+    };
+    else body = { transport: "serial", port: opt.value, baud: +$("baud").value || 115200 };
+    if (opt.value === "lan" && !body.host) { alert("Enter the radio's IP address."); return; }
+    const btn = $("connectBtn"); btn.textContent = "Connecting…"; btn.disabled = true;
+    try {
+      const r = await fetch("/api/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const j = await r.json();
+      if (!j.ok) alert("Connect failed: " + (j.error || "unknown"));
+    } finally { btn.textContent = "Connect"; btn.disabled = false; }
   };
   $("disconnectBtn").onclick = () => fetch("/api/disconnect", { method: "POST" });
 
   // ---- boot ----
   step = +$("step").value;
+  updateConnFields();
   connectWS();
   loadPorts().then(() => {
     // auto-start the simulator so the waterfall is live immediately

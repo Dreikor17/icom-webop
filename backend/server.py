@@ -26,6 +26,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from . import civ
+from .lan import LanTransport
 from .radio import Radio
 from .transport import SerialTransport, SimTransport, available_ports
 
@@ -119,6 +120,12 @@ async def api_connect(request):
             port = body["port"]
             baud = int(body.get("baud", 115200))
             tp = SerialTransport(port, baud)
+        elif kind == "lan":
+            host = (body.get("host") or "").strip()
+            if not host:
+                raise ValueError("LAN host/IP is required")
+            tp = LanTransport(host, int(body.get("port", 50001)),
+                              body.get("user", ""), body.get("password", ""))
         else:
             tp = SimTransport()
         radio.connect(tp)

@@ -84,7 +84,11 @@ class Radio:
         self._tp = transport
         self._reader = civ.FrameReader()
         self._scope = civ.ScopeAssembler()
-        transport.start(self._on_bytes)
+        try:
+            transport.start(self._on_bytes)
+        except Exception:
+            self._tp = None
+            raise
         self.state["connected"] = True
         self.state["transport"] = transport.name
 

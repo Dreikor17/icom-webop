@@ -36,7 +36,9 @@
       if (msg.type === "state") updateState(msg);
       return;
     }
-    parseScope(ev.data);
+    const tag = new Uint8Array(ev.data, 0, 1)[0];
+    if (tag === 0x53) parseScope(ev.data);        // 'S' scope sweep
+    else if (tag === 0x41) playAudio(ev.data);    // 'A' RX audio
   }
 
   function parseScope(buf) {
@@ -83,6 +85,7 @@
     const on = !!s.connected;
     $("led").classList.toggle("on", on);
     $("connlabel").textContent = on ? (s.transport || "Connected") : "Disconnected";
+    $("audioAvail").textContent = s.audio ? "• available" : "• LAN only";
 
     // PTT / TX tag
     $("txTag").textContent = s.ptt ? "TX" : "RX";
@@ -260,6 +263,76 @@
     } finally { btn.textContent = "Connect"; btn.disabled = false; }
   };
   $("disconnectBtn").onclick = () => fetch("/api/disconnect", { method: "POST" });
+
+  // ---- RX audio (Web Audio playback of 16-bit LE mono PCM) ----
+  let audioCtx = null, audioGain = null, playTime = 0, audioOn = false;
+  function startAudio() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      audioGain = audioCtx.createGain();
+      audioGain.gain.value = (+$("vol").value || 80) / 100;
+      audioGain.connect(audioCtx.destination);
+    }
+    audioCtx.resume(); playTime = 0; audioOn = true;
+  }
+  function playAudio(buf) {
+    if (!audioOn || !audioCtx) return;
+    const rate = new DataView(buf).getUint16(2, true) || 16000;
+    const pcm = new Int16Array(buf, 4);            // header is 4 bytes
+    const n = pcm.length; if (!n) return;
+    const ab = audioCtx.createBuffer(1, n, rate);
+    const ch = ab.getChannelData(0);
+    for (let i = 0; i < n; i++) ch[i] = pcm[i] / 32768;
+    const src = audioCtx.createBufferSource(); src.buffer = ab; src.connect(audioGain);
+    const now = audioCtx.currentTime;
+    if (playTime < now + 0.05) playTime = now + 0.15;   // (re)build jitter buffer on underrun
+    src.start(playTime); playTime += ab.duration;
+  }
+
+  // ---- TX mic (capture -> 16 kHz mono s16le -> server -> radio) ----
+  // NOTE: this only streams audio to the radio's modulator; the radio transmits
+  // ONLY when PTT is engaged AND its MOD Input is set to LAN.
+  let micStream = null, micSrc = null, micProc = null, micSink = null, micOn = false;
+  async function startMic() {
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia(
+        { audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+    } catch (e) { alert("Microphone access denied: " + e); return false; }
+    if (!audioCtx) startAudio();
+    micSrc = audioCtx.createMediaStreamSource(micStream);
+    micProc = audioCtx.createScriptProcessor(4096, 1, 1);
+    micSink = audioCtx.createGain(); micSink.gain.value = 0;   // silent sink (no mic monitor)
+    const inRate = audioCtx.sampleRate, outRate = 16000, ratio = inRate / outRate;
+    micProc.onaudioprocess = (e) => {
+      if (!micOn || !ws || ws.readyState !== 1) return;
+      const input = e.inputBuffer.getChannelData(0);
+      const outLen = Math.floor(input.length / ratio);
+      const out = new Int16Array(outLen);
+      for (let i = 0; i < outLen; i++) {
+        const s = input[(i * ratio) | 0];
+        out[i] = s < -1 ? -32768 : s > 1 ? 32767 : (s * 32767) | 0;
+      }
+      ws.send(out.buffer);
+    };
+    micSrc.connect(micProc); micProc.connect(micSink); micSink.connect(audioCtx.destination);
+    micOn = true; return true;
+  }
+  function stopMic() {
+    micOn = false;
+    for (const n of [micProc, micSrc, micSink]) { try { n && n.disconnect(); } catch (_) {} }
+    if (micStream) micStream.getTracks().forEach(t => t.stop());
+    micProc = micSrc = micSink = micStream = null;
+  }
+
+  $("audioBtn").onclick = () => {
+    if (audioOn) { audioOn = false; $("audioBtn").classList.remove("active"); }
+    else { startAudio(); $("audioBtn").classList.add("active"); }
+  };
+  $("micBtn").onclick = async () => {
+    if (micOn) { stopMic(); $("micBtn").classList.remove("on"); }
+    else if (await startMic()) $("micBtn").classList.add("on");
+  };
+  $("vol").oninput = (e) => { if (audioGain) audioGain.gain.value = (+e.target.value) / 100; };
 
   // ---- boot ----
   step = +$("step").value;

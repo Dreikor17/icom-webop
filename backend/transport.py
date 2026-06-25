@@ -31,8 +31,14 @@ def available_ports() -> list[dict]:
 
 
 class Transport:
+    # Audio support (overridden by LanTransport). on_audio is called with raw
+    # RX PCM (16-bit LE mono); write_audio takes TX (mic) PCM in the same format.
+    supports_audio: bool = False
+    on_audio: Optional[Callable[[bytes], None]] = None
+
     def start(self, on_bytes: Callable[[bytes], None]) -> None: ...
     def write(self, data: bytes) -> None: ...
+    def write_audio(self, pcm: bytes) -> None: ...
     def stop(self) -> None: ...
     @property
     def name(self) -> str: return "transport"

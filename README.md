@@ -24,6 +24,8 @@ with no radio attached. Point it at a real COM port when you're ready.
 - **Live readouts** — frequency, mode, filter, and a real-time S-meter.
 - **Levels** — AF, RF, SQL and RF power.
 - **Scope controls** — center/fixed mode and span (±1.25 k … ±250 k).
+- **Audio over LAN** — RX audio plays in the browser; mic streams to the radio
+  for TX (16 kHz / 16-bit mono PCM).
 - **Simulator** built in for development and demos with no hardware.
 
 ## How it talks to the radio
@@ -47,8 +49,9 @@ Two transports are supported behind one interface:
   RS-BA1 UDP protocol (the one `wfview`/RS-BA1 use): three UDP streams — control
   (50001), CI-V/serial (50002) and audio (50003). The CI-V tunnel over the
   network is byte-identical to USB, so full control + the scope/waterfall work
-  over LAN with no change to the layers above the transport. Audio is opened but
-  not yet decoded (a later phase).
+  over LAN with no change to the layers above the transport. **Audio** is also
+  supported over LAN: RX audio plays in the browser, and the mic streams to the
+  radio (16 kHz / 16-bit mono PCM).
 
 ## Run it (Windows)
 
@@ -105,8 +108,8 @@ interchangeable — everything above `transport.py` is identical for both.
 
 ## Roadmap
 
-- **Audio over LAN** (RX playback + TX mic) — the audio stream is already opened;
-  next is decoding/encoding LPCM/µLaw and wiring browser Web Audio + mic.
+- Scope reference-level / sweep-speed controls (so the waterfall is tunable).
+- TX audio is implemented but validate it on-air (needs PTT + MOD Input = LAN).
 - Read true IF filter widths (`1A 03`) instead of per-mode defaults.
 - Memory channels, split/duplex + tone, satellite mode (the 9700's dual scope).
 - Per-control menus to cover more of the CI-V command set.

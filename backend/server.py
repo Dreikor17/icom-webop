@@ -45,7 +45,7 @@ class Hub:
         self.loop: Optional[asyncio.AbstractEventLoop] = None
 
     def add(self) -> asyncio.Queue:
-        q: asyncio.Queue = asyncio.Queue(maxsize=8)
+        q: asyncio.Queue = asyncio.Queue(maxsize=64)   # room for scope + audio
         self.clients.add(q)
         return q
 
@@ -74,10 +74,17 @@ class Hub:
     def broadcast_scope(self, sweep: civ.ScopeSweep) -> None:
         self._push(("bytes", _pack_scope(sweep, radio.state)))
 
+    def broadcast_audio(self, pcm: bytes) -> None:
+        # 'A' tag + channels + sample-rate header, then 16-bit LE mono PCM
+        self._push(("bytes", struct.pack("<BBH", 0x41, 1, AUDIO_RATE) + pcm))
+
+
+AUDIO_RATE = 16000
 
 hub = Hub()
 radio.on_state = hub.broadcast_state
 radio.on_scope = hub.broadcast_scope
+radio.on_audio = hub.broadcast_audio
 
 
 def _pack_scope(sweep: civ.ScopeSweep, state: dict) -> bytes:
@@ -159,8 +166,13 @@ async def ws_endpoint(ws: WebSocket):
     send_task = asyncio.create_task(sender())
     try:
         while True:
-            msg = await ws.receive_text()
-            _handle_cmd(json.loads(msg))
+            msg = await ws.receive()
+            if msg["type"] == "websocket.disconnect":
+                break
+            if msg.get("text") is not None:
+                _handle_cmd(json.loads(msg["text"]))
+            elif msg.get("bytes") is not None:
+                radio.write_audio(msg["bytes"])      # mic PCM (16-bit LE mono)
     except WebSocketDisconnect:
         pass
     finally:

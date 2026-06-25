@@ -15,6 +15,7 @@ docs/civ_reference*.txt
 
 # local scratch diagnostics
 _diag_lan.py
+_diag_audio.py
 
 # OS / editor
 .DS_Store

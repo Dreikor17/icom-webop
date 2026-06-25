@@ -33,6 +33,7 @@ SERIAL_PORT = 50002
 AUDIO_PORT = 50003
 
 _AUDIO_SAMPLE_RATE = 16000
+_AUDIO_TX_CHUNK = (_AUDIO_SAMPLE_RATE // 50) * 2   # 20 ms of 16-bit mono = 640 B @ 16 kHz
 _TX_SEQ_BUF_MS = 150
 _MAX_SERIAL_CHUNK = 64           # split long CI-V frames across packets (radio re-joins on FE..FD)
 
@@ -98,6 +99,7 @@ class _Stream:
         self._lock = threading.Lock()
         self._pkt0_seq = 1
         self._serial_seq = 0
+        self._audio_seq = 0
         self._pkt7_seq = 1
         self._pkt7_inner = 0x8304
         self._txbuf: dict[int, bytes] = {}
@@ -286,6 +288,19 @@ class _Stream:
             self._send_tracked(p)
             self._serial_seq = (self._serial_seq + 1) & 0xFFFF
 
+    # -- audio (TX) ----------------------------------------------------------
+    def send_audio_packet(self, pcm: bytes) -> None:
+        # TX audio packet mirroring the radio's RX format: total length at [0:2],
+        # marker 0x80 (PC->radio), audio seq at [18:20], PCM length at [22:24],
+        # PCM at [24:]. (At 16 kHz the radio uses single ~640-byte PCM packets.)
+        n = len(pcm)
+        total = 24 + n
+        p = bytearray([total & 0xFF, (total >> 8) & 0xFF, 0, 0, 0, 0, 0, 0]) + self._hdr() + bytearray(
+            [0x80, 0x00, (self._audio_seq >> 8) & 0xFF, self._audio_seq & 0xFF,
+             0x00, 0x00, (n >> 8) & 0xFF, n & 0xFF]) + pcm
+        self._send_tracked(p)
+        self._audio_seq = (self._audio_seq + 1) & 0xFFFF
+
     # -- shutdown ------------------------------------------------------------
     def close(self) -> None:
         self._stop.set()
@@ -324,6 +339,8 @@ def _is_retransmit(r: bytes) -> bool:
 # LanTransport — orchestrates the three streams behind the Transport interface
 # ---------------------------------------------------------------------------
 class LanTransport(Transport):
+    supports_audio = True
+
     def __init__(self, host: str, port: int = CONTROL_PORT,
                  user: str = "", password: str = "") -> None:
         self.host = host
@@ -331,6 +348,8 @@ class LanTransport(Transport):
         self.user = user
         self.password = password
         self._on_bytes: Optional[Callable[[bytes], None]] = None
+        self.on_audio: Optional[Callable[[bytes], None]] = None
+        self._tx_audio_buf = bytearray()
 
         self._ctrl: Optional[_Stream] = None
         self._serial: Optional[_Stream] = None
@@ -522,17 +541,18 @@ class LanTransport(Transport):
             self._on_stream_error(f"serial open: {exc}")
             return
 
-        # audio: opened and drained for now (real audio is a later phase).
+        # audio: RX (radio -> us) is parsed and handed to on_audio; TX (mic ->
+        # radio) goes out via write_audio. Non-fatal: control + serial (CI-V +
+        # scope) still work if audio fails to open.
         try:
             a = _Stream("audio", self.host, AUDIO_PORT, self._on_stream_error)
             a.use_pkt0_idle = False
             a.open()
             a.handshake()
-            a.handle = lambda _r: None
+            a.handle = self._on_audio_packet
             a.start_threads()
             self._audio = a
         except Exception as exc:  # noqa: BLE001
-            # non-fatal: control + serial (CI-V + scope) work without audio
             self._error = f"audio open failed (non-fatal): {exc}"
 
     def _on_serial_packet(self, r: bytes) -> None:
@@ -543,6 +563,31 @@ class LanTransport(Transport):
         if len(r) >= 22 and r[16] == 0xC1:
             if self._on_bytes:
                 self._on_bytes(bytes(r[21:]))
+
+    def _on_audio_packet(self, r: bytes) -> None:
+        # RX audio: 24-byte header then PCM (16-bit LE mono). The packet size
+        # depends on the negotiated sample rate (e.g. 16 kHz -> 664-byte packets
+        # with 640 PCM bytes), so detect by structure, not a hardcoded length:
+        # marker [16] in {0x80,0x81}, PCM length at [22:24], PCM at [24:].
+        if len(r) >= 26 and r[16] in (0x80, 0x81) and r[2:6] == b"\x00\x00\x00\x00":
+            pcm_len = (r[22] << 8) | r[23]
+            if pcm_len and len(r) >= 24 + pcm_len and self.on_audio:
+                self.on_audio(bytes(r[24:24 + pcm_len]))
+
+    def write_audio(self, pcm: bytes) -> None:
+        # TX (mic) audio: buffer and emit 1920-byte frames (radio's frame size).
+        a = self._audio
+        if a is None:
+            return
+        self._tx_audio_buf += pcm
+        while len(self._tx_audio_buf) >= _AUDIO_TX_CHUNK:
+            chunk = bytes(self._tx_audio_buf[:_AUDIO_TX_CHUNK])
+            del self._tx_audio_buf[:_AUDIO_TX_CHUNK]
+            try:
+                a.send_audio_packet(chunk)
+            except Exception as exc:  # noqa: BLE001
+                self._on_stream_error(f"audio tx: {exc}")
+                return
 
     def _on_stream_error(self, msg: str) -> None:
         if self._error is None:

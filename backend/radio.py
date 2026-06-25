@@ -56,6 +56,7 @@ class Radio:
 
         self.on_scope: Optional[ScopeCb] = None
         self.on_state: Optional[StateCb] = None
+        self.on_audio: Optional[Callable[[bytes], None]] = None
 
         self.state = {
             "connected": False,
@@ -76,7 +77,17 @@ class Radio:
             "sql": 0,
             "rfpwr": 180,
             "ptt": False,
+            "audio": False,
         }
+
+    # -- audio passthrough (LAN only) ---------------------------------------
+    def _dispatch_audio(self, pcm: bytes) -> None:
+        if self.on_audio:
+            self.on_audio(pcm)
+
+    def write_audio(self, pcm: bytes) -> None:
+        if self._tp is not None and getattr(self._tp, "supports_audio", False):
+            self._tp.write_audio(pcm)
 
     # -- connection ----------------------------------------------------------
     def connect(self, transport: Transport) -> None:
@@ -84,6 +95,8 @@ class Radio:
         self._tp = transport
         self._reader = civ.FrameReader()
         self._scope = civ.ScopeAssembler()
+        if getattr(transport, "supports_audio", False):
+            transport.on_audio = self._dispatch_audio
         try:
             transport.start(self._on_bytes)
         except Exception:
@@ -91,6 +104,7 @@ class Radio:
             raise
         self.state["connected"] = True
         self.state["transport"] = transport.name
+        self.state["audio"] = getattr(transport, "supports_audio", False)
 
         # enable the scope output (needs BOTH on/off and data-output on)
         self.set_scope_mode(self.state["scope_center"])
@@ -122,6 +136,7 @@ class Radio:
             self._tp = None
         self.state["connected"] = False
         self.state["transport"] = None
+        self.state["audio"] = False
         self._emit_state()
 
     def _write(self, frame: bytes) -> None:

@@ -350,6 +350,14 @@ class LanTransport(Transport):
         self._on_bytes: Optional[Callable[[bytes], None]] = None
         self.on_audio: Optional[Callable[[bytes], None]] = None
         self._tx_audio_buf = bytearray()
+        self._tx_audio_pkts = 0   # diagnostics: audio packets sent to the radio
+        self._tx_audio_bytes = 0
+        self._rx_audio_pkts = 0   # diagnostics: audio packets received from the radio
+
+    def audio_stats(self) -> dict:
+        return {"audio_open": self._audio is not None,
+                "tx_pkts": self._tx_audio_pkts, "tx_bytes": self._tx_audio_bytes,
+                "rx_pkts": self._rx_audio_pkts}
 
         self._ctrl: Optional[_Stream] = None
         self._serial: Optional[_Stream] = None
@@ -572,6 +580,7 @@ class LanTransport(Transport):
         if len(r) >= 26 and r[16] in (0x80, 0x81) and r[2:6] == b"\x00\x00\x00\x00":
             pcm_len = (r[22] << 8) | r[23]
             if pcm_len and len(r) >= 24 + pcm_len and self.on_audio:
+                self._rx_audio_pkts += 1
                 self.on_audio(bytes(r[24:24 + pcm_len]))
 
     def write_audio(self, pcm: bytes) -> None:
@@ -585,6 +594,8 @@ class LanTransport(Transport):
             del self._tx_audio_buf[:_AUDIO_TX_CHUNK]
             try:
                 a.send_audio_packet(chunk)
+                self._tx_audio_pkts += 1
+                self._tx_audio_bytes += len(chunk)
             except Exception as exc:  # noqa: BLE001
                 self._on_stream_error(f"audio tx: {exc}")
                 return

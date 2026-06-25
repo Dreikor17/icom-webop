@@ -146,6 +146,12 @@ async def api_disconnect(request):
     return JSONResponse({"ok": True})
 
 
+async def api_audiostat(request):
+    tp = radio._tp
+    stats = tp.audio_stats() if tp is not None and hasattr(tp, "audio_stats") else {"audio": False}
+    return JSONResponse({"transport": radio.state["transport"], "ptt": radio.state.get("ptt"), **stats})
+
+
 # -- WebSocket ---------------------------------------------------------------
 async def ws_endpoint(ws: WebSocket):
     await ws.accept()
@@ -223,6 +229,7 @@ routes = [
     Route("/api/ports", api_ports),
     Route("/api/connect", api_connect, methods=["POST"]),
     Route("/api/disconnect", api_disconnect, methods=["POST"]),
+    Route("/api/audiostat", api_audiostat),
     WebSocketRoute("/ws", ws_endpoint),
     Mount("/static", StaticFiles(directory=str(FRONTEND)), name="static"),
 ]

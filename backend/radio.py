@@ -21,6 +21,15 @@ from .transport import Transport
 MOD_LAN = 0x05                 # CI-V value selecting the LAN modulation source (all models)
 PTT_TIMEOUT = 120              # PTT failsafe: auto-unkey after this many seconds keyed
 
+# CI-V 0x14 level sub-command -> state key
+LEVEL_KEYS = {0x01: "af", 0x02: "rf", 0x03: "sql", 0x0A: "rfpwr",
+              0x06: "nr_level", 0x12: "nb_level", 0x07: "pbt1", 0x08: "pbt2", 0x0D: "mnotch_pos"}
+# RX-DSP on/off toggles: state key -> CI-V 0x16 sub-command
+RX_FUNCS = {"nb": 0x22, "nr": 0x40, "anotch": 0x41, "mnotch": 0x48}
+# CI-V 0x16 read sub -> state key (preamp + RX DSP)
+FUNC_KEYS = {0x02: "preamp", 0x22: "nb", 0x40: "nr", 0x41: "anotch",
+             0x48: "mnotch", 0x12: "agc", 0x57: "mnotch_w"}
+
 ScopeCb = Callable[[civ.ScopeSweep], None]
 StateCb = Callable[[dict], None]
 
@@ -91,6 +100,12 @@ class Radio:
             # core RX controls
             "preamp": 0, "att": 0, "lock": False,
             "has_preamp": p.has_preamp, "has_att": p.has_att,
+            # RX DSP (M2)
+            "nb": 0, "nb_level": 0,
+            "nr": 0, "nr_level": 0,
+            "anotch": 0, "mnotch": 0, "mnotch_w": 0, "mnotch_pos": 128,
+            "agc": 2,                          # 1 FAST, 2 MID, 3 SLOW
+            "pbt1": 128, "pbt2": 128,          # twin PBT, 128 = center
         }
 
     def _b(self, cmd: int, sub: Optional[int] = None, data: bytes = b"") -> bytes:
@@ -134,6 +149,10 @@ class Radio:
 
         self._write(self._b(0x03))                       # read freq
         self._write(self._b(0x04))                       # read mode
+        for sub in (0x02, 0x22, 0x40, 0x41, 0x48, 0x12, 0x57):  # preamp + RX-DSP on/off + AGC
+            self._write(self._b(0x16, sub))
+        for sub in (0x06, 0x12, 0x07, 0x08, 0x0D):       # NR/NB level + twin PBT + notch position
+            self._write(self._b(0x14, sub))
 
         self._poll_stop.clear()
         self._poll_thread = threading.Thread(target=self._poll, daemon=True, name="civ-poll")
@@ -266,10 +285,9 @@ class Radio:
                     self.state["filter_name"] = civ.FILTERS[p[1]]
                 changed = True
         elif c == 0x14:                                  # level read
-            val = civ.bcd_to_level(d)
-            key = {0x01: "af", 0x02: "rf", 0x03: "sql", 0x0A: "rfpwr"}.get(s)
+            key = LEVEL_KEYS.get(s)
             if key:
-                self.state[key] = val
+                self.state[key] = civ.bcd_to_level(d)
                 changed = True
         elif c == 0x15:                                  # multi-meter
             lvl = civ.bcd_to_level(d)
@@ -293,11 +311,13 @@ class Radio:
             if s is not None:
                 self.state["att"] = s
                 changed = True
-        elif c == 0x16:                                  # functions
-            if s == 0x02 and d:                          # preamp (P.AMP)
-                self.state["preamp"] = d[0]; changed = True
-            elif s == 0x50 and d:                        # dial lock
+        elif c == 0x16 and d:                            # functions (preamp / lock / RX DSP)
+            if s == 0x50:                                # dial lock (bool)
                 self.state["lock"] = bool(d[0]); changed = True
+            else:
+                key = FUNC_KEYS.get(s)
+                if key:
+                    self.state[key] = d[0]; changed = True
         elif c == 0x1A and s == 0x05 and len(d) >= 3:    # MOD Input read response
             dataoff, level = self.profile.mod_dataoff, self.profile.lan_mod_level
             if d[0] == dataoff[0] and d[1] == dataoff[1] and self._modsrc_orig is None:
@@ -406,10 +426,30 @@ class Radio:
         self._emit_state()
 
     def set_level(self, sub: int, value: int) -> None:
-        key = {0x01: "af", 0x02: "rf", 0x03: "sql", 0x0A: "rfpwr"}.get(sub)
+        key = LEVEL_KEYS.get(sub)
         if key:
             self.state[key] = max(0, min(255, int(value)))
         self._write(self._b(0x14, sub, civ.level_to_bcd(value)))
+        self._emit_state()
+
+    def set_rx_func(self, name: str, on: bool) -> None:
+        sub = RX_FUNCS.get(name)
+        if sub is None:
+            return
+        self.state[name] = 1 if on else 0
+        self._write(self._b(0x16, sub, bytes([1 if on else 0])))
+        self._emit_state()
+
+    def set_agc(self, mode: int) -> None:
+        mode = max(1, min(3, int(mode)))
+        self.state["agc"] = mode
+        self._write(self._b(0x16, 0x12, bytes([mode])))
+        self._emit_state()
+
+    def set_mnotch_w(self, width: int) -> None:
+        width = max(0, min(2, int(width)))
+        self.state["mnotch_w"] = width
+        self._write(self._b(0x16, 0x57, bytes([width])))
         self._emit_state()
 
     def set_band(self, band: str) -> None:

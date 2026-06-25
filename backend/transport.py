@@ -120,8 +120,10 @@ class SimTransport(Transport):
         self.scope_center = True   # center vs fixed
         self.scope_on = False
         self.scope_out = False
-        self.levels = {0x01: 128, 0x02: 200, 0x03: 0, 0x0A: 0}  # AF/RF/SQL/RFpwr (power 0%)
-        self.funcs = {0x02: 0x00, 0x50: 0x00}  # preamp off, dial-lock off
+        self.levels = {0x01: 128, 0x02: 200, 0x03: 0, 0x0A: 0,   # AF/RF/SQL/RFpwr (power 0%)
+                       0x06: 0, 0x12: 0, 0x07: 128, 0x08: 128}    # NR/NB level, twin PBT (center)
+        self.funcs = {0x02: 0, 0x50: 0, 0x22: 0, 0x40: 0,        # preamp, dial-lock, NB, NR
+                      0x41: 0, 0x48: 0, 0x12: 2, 0x57: 0}          # A-notch, M-notch, AGC=MID, notch-W
 
     @property
     def name(self) -> str:

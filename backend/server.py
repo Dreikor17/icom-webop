@@ -32,7 +32,9 @@ from .transport import SerialTransport, SimTransport, available_ports
 
 FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
 
-LEVEL_TARGETS = {"af": 0x01, "rf": 0x02, "sql": 0x03, "rfpwr": 0x0A}
+LEVEL_TARGETS = {"af": 0x01, "rf": 0x02, "sql": 0x03, "rfpwr": 0x0A,
+                 "nr_level": 0x06, "nb_level": 0x12, "pbt1": 0x07, "pbt2": 0x08,
+                 "mnotch_pos": 0x0D}
 
 radio = Radio()
 
@@ -224,6 +226,12 @@ def _handle_cmd(cmd: dict) -> None:
             radio.set_att(bool(cmd["on"]))
         elif action == "lock":
             radio.set_lock(bool(cmd["on"]))
+        elif action == "rx_func":
+            radio.set_rx_func(str(cmd["name"]), bool(cmd["on"]))
+        elif action == "agc":
+            radio.set_agc(int(cmd["mode"]))
+        elif action == "mnotch_w":
+            radio.set_mnotch_w(int(cmd["width"]))
         elif action == "ptt":
             radio.set_ptt(bool(cmd["tx"]))
     except (KeyError, ValueError, TypeError):

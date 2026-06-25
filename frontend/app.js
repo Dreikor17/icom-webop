@@ -8,6 +8,7 @@
   let ws = null, state = {}, step = 25000;
   let radios = [], currentRadio = null;          // radio profiles from /api/radios
   let pttIntended = false, pttKeyedAt = 0;       // PTT toggle state + time keyed
+  const LEVELS = ["af", "rf", "sql", "rfpwr", "nb_level", "nr_level", "pbt1", "pbt2", "mnotch_pos"];
 
   // ---- frequency formatting (Icom dotted readout) ----
   function formatFreq(hz) {
@@ -120,8 +121,16 @@
     setActive(".mode", b => b.dataset.mode === s.mode_name);
     setActive(".filt", b => b.dataset.filter === String(s.filter));
 
+    // RX DSP toggles + AGC
+    for (const f of ["nb", "nr", "anotch", "mnotch"]) {
+      const el = $(f + "Btn");
+      if (el) el.classList.toggle("on", (s[f] || 0) > 0);
+    }
+    setActive(".agc", b => +b.dataset.mode === (s.agc || 2));
+    setActive(".mnw", b => +b.dataset.width === (s.mnotch_w || 0));
+
     // level sliders (don't fight an active drag) + value readouts
-    for (const t of ["af", "rf", "sql", "rfpwr"]) {
+    for (const t of LEVELS) {
       const el = $(t);
       if (el && document.activeElement !== el && s[t] != null) el.value = s[t];
       if (s[t] != null) $(t + "Val").textContent = fmtLevel(t, s[t]);
@@ -165,6 +174,9 @@
                : !state.lock;
       send({ action: fn, on });
     }
+    else if (act === "rxfunc") send({ action: "rx_func", name: b.dataset.fn, on: !((state[b.dataset.fn] || 0) > 0) });
+    else if (act === "agc") send({ action: "agc", mode: +b.dataset.mode });
+    else if (act === "mnotch_w") send({ action: "mnotch_w", width: +b.dataset.width });
     else if (act === "mode") send({ action: "set_mode", mode: b.dataset.mode });
     else if (act === "filter") send({ action: "set_filter", filter: +b.dataset.filter });
     else if (act === "vfo") send({ action: "vfo", code: +b.dataset.code });
@@ -195,7 +207,7 @@
 
   // level sliders (power shown as %, others 0–255)
   function fmtLevel(t, v) { return t === "rfpwr" ? Math.round(v / 255 * 100) + "%" : "" + v; }
-  for (const t of ["af", "rf", "sql", "rfpwr"]) {
+  for (const t of LEVELS) {
     $(t).addEventListener("input", e => {
       send({ action: "set_level", target: t, value: +e.target.value });
       $(t + "Val").textContent = fmtLevel(t, +e.target.value);

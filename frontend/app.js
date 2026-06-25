@@ -91,6 +91,8 @@
     $("txTag").textContent = s.ptt ? "TX" : "RX";
     $("txTag").classList.toggle("on", !!s.ptt);
     $("pttBtn").classList.toggle("on", !!s.ptt);
+    $("pttBtn").textContent = s.ptt ? "ON AIR — TAP TO STOP" : "PTT";
+    pttIntended = !!s.ptt;   // keep local intent in sync with the radio's actual TX state
 
     // span + scope mode
     $("spanVal").textContent = s.span_label || "";
@@ -168,13 +170,20 @@
     });
   }
 
-  // PTT momentary
+  // PTT — tap to toggle (works on touch + mouse). Latched TX auto-releases for
+  // safety on background/screen-lock, page unload, a 5-min backstop, and
+  // (server-side) if the connection drops.
   const ptt = $("pttBtn");
-  const pttDown = () => send({ action: "ptt", tx: true });
-  const pttUp = () => send({ action: "ptt", tx: false });
-  ptt.addEventListener("mousedown", pttDown);
-  ptt.addEventListener("mouseup", pttUp);
-  ptt.addEventListener("mouseleave", () => { if (state.ptt) pttUp(); });
+  let pttIntended = false, pttWatchdog = null;
+  function setPtt(tx) {
+    pttIntended = !!tx;
+    send({ action: "ptt", tx: pttIntended });
+    if (pttWatchdog) { clearTimeout(pttWatchdog); pttWatchdog = null; }
+    if (pttIntended) pttWatchdog = setTimeout(() => setPtt(false), 300000);  // 5-min safety
+  }
+  ptt.addEventListener("click", () => setPtt(!pttIntended));
+  document.addEventListener("visibilitychange", () => { if (document.hidden && pttIntended) setPtt(false); });
+  window.addEventListener("pagehide", () => { if (pttIntended) setPtt(false); });
 
   // ---- tuning: click-to-tune + wheel on the scope ----
   const wrap = $("scopeWrap");

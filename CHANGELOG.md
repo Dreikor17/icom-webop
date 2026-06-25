@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org).
 ## [Unreleased]
 
 ### Changed
+- **PTT is now tap-to-toggle** (was press-and-hold) so it works on touchscreens:
+  tap to key TX, tap again for RX. Latched TX auto-releases for safety on
+  screen-lock / app-switch, page close, a 5-minute backstop, and (server-side)
+  if the last client disconnects.
 - Microphone (TX) now shows a clear "needs HTTPS" message on insecure
   (plain-HTTP) connections instead of a generic "access denied" — browsers only
   expose `getUserMedia` in a secure context (HTTPS or localhost).

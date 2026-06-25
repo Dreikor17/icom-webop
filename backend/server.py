@@ -178,6 +178,9 @@ async def ws_endpoint(ws: WebSocket):
     finally:
         send_task.cancel()
         hub.remove(q)
+        # safety: never leave the radio keyed if the last client drops
+        if not hub.clients and radio.state.get("ptt"):
+            radio.set_ptt(False)
 
 
 def _handle_cmd(cmd: dict) -> None:

@@ -36,17 +36,35 @@
   <div class="topdeck">
   <!-- ===================== DISPLAY (TFT) ===================== -->
   <section class="display">
-    <div class="bands" id="bands">
+    <div class="bands tft" id="bands">
       <div class="bandrow active" data-act="select_band" data-band="main" id="rowMain" title="Operate the MAIN band">
-        <span class="band-tag">MAIN</span>
-        <span class="band-freq" id="mainFreq">—</span>
-        <span class="band-meta"><b class="band-mode" id="mainMode">USB</b><i class="band-fil" id="mainFil">FIL1</i></span>
-        <span class="tx" id="txTag">RX</span>
+        <div class="b-modebox">
+          <b class="band-mode" id="mainMode">USB</b>
+          <i class="band-fil" id="mainFil">FIL1</i>
+        </div>
+        <div class="b-center">
+          <div class="ind-strip" id="mainInd"></div>
+          <div class="band-freq" id="mainFreq">—</div>
+        </div>
+        <div class="b-side">
+          <span class="tx" id="txTag">RX</span>
+          <span class="b-vfo" id="mainVfo">VFO A</span>
+          <span class="b-band"><b class="band-tag">MAIN</b><i id="mainBand"></i></span>
+        </div>
       </div>
       <div class="bandrow" data-act="select_band" data-band="sub" id="rowSub" title="Operate the SUB band">
-        <span class="band-tag">SUB</span>
-        <span class="band-freq" id="subFreq">—</span>
-        <span class="band-meta"><b class="band-mode" id="subMode">FM</b><i class="band-fil" id="subFil">FIL1</i></span>
+        <div class="b-modebox">
+          <b class="band-mode" id="subMode">FM</b>
+          <i class="band-fil" id="subFil">FIL1</i>
+        </div>
+        <div class="b-center">
+          <div class="ind-strip" id="subInd"></div>
+          <div class="band-freq" id="subFreq">—</div>
+        </div>
+        <div class="b-side">
+          <span class="b-vfo" id="subVfo">VFO A</span>
+          <span class="b-band"><b class="band-tag">SUB</b><i id="subBand"></i></span>
+        </div>
       </div>
     </div>
 

@@ -22,3 +22,8 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
+
+# derived working copies of the copyrighted IC-9700 Basic Manual (not committed)
+docs/_manual_text.txt
+docs/_manual*.txt
+docs/_render/

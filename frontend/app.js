@@ -81,6 +81,8 @@
     fillBand("sub", s.sub);
     $("rowMain").classList.toggle("active", s.active_band !== "sub");
     $("rowSub").classList.toggle("active", s.active_band === "sub");
+    setInd("mainInd", s, s.active_band !== "sub");
+    setInd("subInd", s, s.active_band === "sub");
 
     // multi-meter (S live; TX meters wired for M3)
     const isS = (s.meter || "S") === "S";
@@ -143,11 +145,30 @@
     scope.drawOverlay();
   }
 
+  const BAND_LABEL = { "144": "2 m", "430": "70 cm", "1200": "23 cm" };
   function fillBand(name, b) {
     if (!b) return;
     $(name + "Freq").textContent = formatFreq(b.freq);
     $(name + "Mode").textContent = b.mode_name || "";
     $(name + "Fil").textContent = b.filter_name || "";
+    const bn = bandOf(b.freq);
+    const lbl = $(name + "Band");
+    if (lbl) lbl.textContent = BAND_LABEL[bn] || (bn ? bn + " m" : "");
+  }
+
+  // function-indicator strip (lit, like the TFT) — only the operating band's DSP is tracked
+  function setInd(elId, s, isActive) {
+    const el = $(elId);
+    if (!el) return;
+    if (!isActive) { el.innerHTML = ""; return; }
+    const inds = [["AGC-" + ({ 1: "F", 2: "M", 3: "S" }[s.agc || 2]), "amber"]];
+    if ((s.preamp || 0) > 0) inds.push(["P.AMP", ""]);
+    if ((s.att || 0) > 0) inds.push(["ATT", ""]);
+    if (s.nb) inds.push(["NB", ""]);
+    if (s.nr) inds.push(["NR", ""]);
+    if (s.anotch) inds.push(["AN", ""]);
+    if (s.mnotch) inds.push(["MN", ""]);
+    el.innerHTML = inds.map(([t, c]) => '<span class="ind ' + c + '">' + t + "</span>").join("");
   }
 
   function bandOf(hz) {

@@ -270,3 +270,31 @@ select,input,.baud{
 .conn{flex-wrap:wrap;justify-content:flex-end}
 .conn-controls{flex-wrap:wrap;justify-content:flex-end}
 .lan-fields{flex-wrap:wrap}
+
+/* ===== skeuomorphic TFT band blocks (IC-9700 manual layout) ===== */
+.bands.tft{gap:8px}
+.bandrow{grid-template-columns:auto 1fr auto;gap:10px;padding:8px 10px;align-items:center}
+.b-modebox{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:56px}
+.b-modebox .band-mode{font-size:15px;padding:2px 8px;width:100%;text-align:center}
+.b-modebox .band-fil{font-size:11px;font-style:normal;color:var(--txt-dim)}
+.bandrow:not(.active) .b-modebox .band-mode{background:#08202e;color:#5f93a8}
+.b-center{display:flex;flex-direction:column;min-width:0;gap:2px}
+.ind-strip{display:flex;flex-wrap:wrap;gap:3px;min-height:13px;align-items:center}
+.ind{font-size:9px;font-weight:700;letter-spacing:.3px;line-height:1;padding:2px 4px;border-radius:3px;
+  background:#0a3550;color:var(--accent-2);border:1px solid #1d6a8c}
+.ind.amber{background:#3a2c10;color:var(--amber);border-color:#6a5320}
+.b-center .band-freq{font-size:30px}
+.bandrow.active .b-center .band-freq{font-size:40px}
+.b-side{display:flex;flex-direction:column;align-items:flex-end;gap:3px;min-width:58px}
+.b-vfo{font-size:11px;font-weight:700;color:var(--accent-2);background:#0a2c40;padding:1px 6px;border-radius:4px}
+.bandrow:not(.active) .b-vfo{color:#5f93a8;background:#08202e}
+.b-band{display:flex;flex-direction:column;align-items:flex-end;line-height:1.15}
+.b-band .band-tag{min-width:0;background:none;border:none;padding:0}
+.b-band i{font-style:normal;font-size:10px;color:var(--txt-dim)}
+@media (max-width:680px){
+  .bandrow{grid-template-columns:auto minmax(0,1fr) auto;gap:6px;padding:6px 8px}
+  .bandrow.active .b-center .band-freq{font-size:26px}
+  .b-center .band-freq{font-size:18px}
+  .b-modebox{min-width:46px}
+  .ind{font-size:8px;padding:1px 3px}
+}

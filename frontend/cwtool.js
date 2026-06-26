@@ -41,25 +41,28 @@
 
   // ---- drag the panel by its header ----
   (function () {
-    let down = false, ox = 0, oy = 0;
+    let down = false, sx = 0, sy = 0, baseL = 0, baseT = 0;
+    const prect = () => (panel.offsetParent || panel.parentElement).getBoundingClientRect();
     head.addEventListener("pointerdown", (e) => {
       if (e.target.closest(".tp-close")) return;
-      down = true; ox = e.clientX; oy = e.clientY;
-      const r = panel.getBoundingClientRect();
-      panel.style.left = r.left + "px"; panel.style.top = r.top + "px";
+      // style.left/top are relative to the offset parent, NOT the viewport — convert,
+      // so grabbing the header doesn't jump the panel by the parent's offset.
+      const p = prect(), r = panel.getBoundingClientRect();
+      baseL = r.left - p.left; baseT = r.top - p.top;
+      panel.style.left = baseL + "px"; panel.style.top = baseT + "px";
       panel.style.right = "auto"; panel.style.bottom = "auto";
+      sx = e.clientX; sy = e.clientY; down = true;
       try { head.setPointerCapture(e.pointerId); } catch (_) {}
       e.preventDefault();
     });
     head.addEventListener("pointermove", (e) => {
       if (!down || !(e.buttons & 1)) return;
-      const pane = panel.parentElement.getBoundingClientRect();
-      let x = parseFloat(panel.style.left) + (e.clientX - ox);
-      let y = parseFloat(panel.style.top) + (e.clientY - oy);
-      x = Math.max(pane.left, Math.min(pane.right - panel.offsetWidth, x));
-      y = Math.max(pane.top, Math.min(pane.bottom - 40, y));
+      const p = prect();
+      let x = baseL + (e.clientX - sx);          // base + total drag delta (no drift)
+      let y = baseT + (e.clientY - sy);
+      x = Math.max(0, Math.min(p.width - panel.offsetWidth, x));
+      y = Math.max(0, Math.min(p.height - 30, y));
       panel.style.left = x + "px"; panel.style.top = y + "px";
-      ox = e.clientX; oy = e.clientY;
     });
     const end = () => { down = false; };
     head.addEventListener("pointerup", end);

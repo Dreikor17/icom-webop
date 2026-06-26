@@ -581,7 +581,8 @@
   $("radioSel").addEventListener("change", () => {
     renderRadio(selectedRadio());
     renderRadioHelp();
-    saveConn();
+    applyConnForRadio($("radioSel").value);         // restore THIS radio's last connection + settings + audio
+    CONNS.last = $("radioSel").value; persistConns();
     stopAllAudio();                                 // drop any audio/AF-scope from the old radio
     blanked = true;                                 // new radio: blank the readout + waterfall until reconnect
     scope.clear();
@@ -655,9 +656,24 @@
     const note = $("audioAvail");
     if (note) note.textContent = isSerial ? "• USB device" : (sel.value === "lan" ? "• network" : "");
   }
-  $("transport").addEventListener("change", updateConnFields);
+  $("transport").addEventListener("change", () => { updateConnFields(); saveConn(); });
 
-  const CONN_KEY = "radiowebop.conn";
+  // ---- per-radio connection memory (transport + settings, and COM audio devices) ----
+  const CONNS_KEY = "radiowebop.conns";
+  let CONNS = { last: null, radios: {} };
+  let wantRxDev = null, wantMicDev = null;          // device IDs to restore once the lists populate
+  (function loadConns() {
+    try { const v = JSON.parse(localStorage.getItem(CONNS_KEY)); if (v && v.radios) CONNS = v; } catch (_) {}
+    if (!CONNS.radios) CONNS.radios = {};
+    if (!Object.keys(CONNS.radios).length) {        // migrate the old single-config key
+      try {
+        const old = JSON.parse(localStorage.getItem("radiowebop.conn") || localStorage.getItem("icomwebop.conn") || "null");
+        if (old && old.radio) { CONNS.radios[old.radio] = { transport: old.transport, host: old.host, user: old.user, pass: old.pass, baud: old.baud }; CONNS.last = old.radio; }
+      } catch (_) {}
+    }
+  })();
+  function persistConns() { try { localStorage.setItem(CONNS_KEY, JSON.stringify(CONNS)); } catch (_) {} }
+
   function buildConnectBody() {
     const radio = $("radioSel").value;
     const sel = $("transport"), opt = sel.options[sel.selectedIndex];
@@ -668,24 +684,35 @@
     };
     return { transport: "serial", radio, port: opt.value, baud: +$("baud").value || 115200 };
   }
-  function saveConn() {
-    try {
-      localStorage.setItem(CONN_KEY, JSON.stringify({
-        radio: $("radioSel").value,
-        transport: $("transport").value, host: $("lanHost").value,
-        user: $("lanUser").value, pass: $("lanPass").value, baud: $("baud").value,
-      }));
-    } catch (_) {}
+  function currentConf() {
+    const sel = $("transport"), opt = sel.options[sel.selectedIndex];
+    const serial = !!(opt && opt.dataset.kind === "serial");
+    return {
+      transport: serial ? "serial" : (opt ? opt.value : "sim"),
+      port: serial ? opt.value : "",
+      baud: $("baud").value,
+      host: $("lanHost").value, user: $("lanUser").value, pass: $("lanPass").value,
+      rxDev: $("rxDev") ? $("rxDev").value : "", micDev: $("micDev") ? $("micDev").value : "",
+    };
   }
-  function restoreConnFields() {
-    let s = null;
-    try { s = JSON.parse(localStorage.getItem(CONN_KEY) || localStorage.getItem("icomwebop.conn") || "null"); } catch (_) {}
-    if (!s) return null;
-    if (s.host) $("lanHost").value = s.host;
-    if (s.user) $("lanUser").value = s.user;
-    if (s.pass) $("lanPass").value = s.pass;
-    if (s.baud) $("baud").value = s.baud;
-    return s;
+  function saveConn() {
+    const id = $("radioSel").value; if (!id) return;
+    CONNS.radios[id] = currentConf(); CONNS.last = id; persistConns();
+  }
+  // restore a radio's last-used connection type + settings (+ COM audio devices)
+  function applyConnForRadio(id) {
+    const c = (CONNS.radios && CONNS.radios[id]) || {};
+    if (c.host != null) $("lanHost").value = c.host;
+    if (c.user != null) $("lanUser").value = c.user;
+    if (c.pass != null) $("lanPass").value = c.pass;
+    if (c.baud) $("baud").value = c.baud;
+    const sel = $("transport");
+    let v = "sim";
+    if (c.transport === "serial" && c.port && [...sel.options].some((o) => o.dataset.kind === "serial" && o.value === c.port)) v = c.port;
+    else if (c.transport === "lan") { const lo = sel.querySelector('option[value="lan"]'); if (lo && !lo.hidden) v = "lan"; }
+    sel.value = v;
+    wantRxDev = c.rxDev || null; wantMicDev = c.micDev || null;
+    updateConnFields();                             // shows the right fields + (serial) loads audio devices
   }
   async function doConnect(body, silent) {
     const btn = $("connectBtn"); btn.textContent = "Connecting…"; btn.disabled = true;
@@ -705,10 +732,12 @@
     doConnect(body);                       // collapses the settings on success (mobile)
   };
   $("disconnectBtn").onclick = () => { stopAllAudio(); $("conn").classList.add("open"); fetch("/api/disconnect", { method: "POST" }); };
-  // Enter in any connection field starts the connect
+  // Enter in any connection field starts the connect; edits persist per-radio
   ["lanHost", "lanUser", "lanPass", "baud"].forEach((id) => {
     const el = $(id);
-    if (el) el.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("connectBtn").click(); } });
+    if (!el) return;
+    el.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("connectBtn").click(); } });
+    el.addEventListener("change", saveConn);
   });
 
   // ---- RX audio (Web Audio playback of 16-bit LE mono PCM) ----
@@ -795,6 +824,12 @@
     try { devs = await navigator.mediaDevices.enumerateDevices(); } catch (_) { return; }
     fillDevs($("rxDev"), devs.filter((d) => d.kind === "audioinput"), "Input");
     fillDevs($("micDev"), devs.filter((d) => d.kind === "audiooutput"), "Output");
+    applyWantedDevs();                              // restore the remembered RX-in / Mic-out for this radio
+  }
+  function applyWantedDevs() {
+    const r = $("rxDev"), m = $("micDev");
+    if (r && wantRxDev && [...r.options].some((o) => o.value === wantRxDev)) r.value = wantRxDev;
+    if (m && wantMicDev && [...m.options].some((o) => o.value === wantMicDev)) m.value = wantMicDev;
   }
   if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
     navigator.mediaDevices.addEventListener("devicechange", loadAudioDevices);
@@ -917,8 +952,9 @@
   }
 
   // re-route live if the device picker changes while running
-  if ($("rxDev")) $("rxDev").addEventListener("change", () => { if (rxSrcNode) { stopSerialRx(); startSerialRx(); } });
+  if ($("rxDev")) $("rxDev").addEventListener("change", () => { saveConn(); if (rxSrcNode) { stopSerialRx(); startSerialRx(); } });
   if ($("micDev")) $("micDev").addEventListener("change", async () => {
+    saveConn();
     if (micElSerial && micElSerial.setSinkId) { try { await micElSerial.setSinkId($("micDev").value); } catch (_) {} }
   });
 
@@ -992,23 +1028,20 @@
   // ---- boot ----
   requestAnimationFrame(() => scope.resize());          // re-measure once the console layout settles
   window.addEventListener("load", () => scope.resize());
-  const saved = restoreConnFields();
-  updateConnFields();
   connectWS();
   loadRadios().then(() => {
-    if (saved && saved.radio && radios.some(p => p.id === saved.radio)) $("radioSel").value = saved.radio;
+    if (CONNS.last && radios.some(p => p.id === CONNS.last)) $("radioSel").value = CONNS.last;   // last-used radio
     renderRadio(selectedRadio());
-    return loadPorts();
+    return loadPorts();                            // serial COM options now exist
   }).then((status) => {
-    const sel = $("transport");
-    if (saved && [...sel.options].some(o => o.value === saved.transport)) sel.value = saved.transport;
-    updateConnFields();
     if (status && status.connected) {              // already connected — reflect its radio
       if (status.radio && radios.some(p => p.id === status.radio)) { $("radioSel").value = status.radio; renderRadio(selectedRadio()); }
+      applyConnForRadio($("radioSel").value);
       $("conn").classList.remove("open");          // collapse settings (mobile)
       return;
     }
-    const body = buildConnectBody();               // else connect to the remembered method (silent on failure)
+    applyConnForRadio($("radioSel").value);        // restore this radio's last connection type + settings
+    const body = buildConnectBody();               // and connect to it (silent on failure)
     if (body.transport === "lan" && !body.host) doConnect({ transport: "sim", radio: $("radioSel").value }, true);
     else doConnect(body, true);
   });

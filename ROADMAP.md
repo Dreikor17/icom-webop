@@ -43,11 +43,14 @@ just adding a profile.
 - **Band-plan overlay enhancements** (the overlay itself shipped): let the user pick
   their license class to highlight just their privileges and soft-flag tuning outside
   them; make the data region-aware so non-US band plans can drop in.
-- **CW encoder / decoder** — a built-in Morse helper: *decode* received CW by tracking
-  the tone in the RX audio (or the scope peak) into text, with adjustable WPM/threshold;
-  and *encode* typed text to CW for sending via the radio's CW keyer (CI-V keyer/keying
-  or a keyed line). Show a side panel with the decoded text stream and a send box.
-  Decode-only first (RX, no keying); keying respects the same TX-safety failsafe as PTT.
+- **CW encoder / decoder** — *shipped* as the first overlay tool (the "CW" button pops
+  a draggable panel over the waterfall): a classic DSP decoder on the RX audio (adaptive
+  tone/threshold/WPM) + a type-to-Morse soft-keyed sidetone (no transmit). *Follow-ups:*
+  optionally integrate the deep-learning ONNX decoder from e04/deep-cw-decoder (note: it
+  is **AGPL-3.0**, so it would relicense the app — a deliberate opt-in); and actual CW
+  keying to TX via the CI-V keyer, bound by the same PTT failsafe.
+- **More overlay tools** over the waterfall (the framework is in place) — e.g. RTTY/FT8
+  decode, a tuning/zero-beat aid, memory keyer.
 - **Tone / DTCS** (CTCSS encode/decode) + an editable duplex offset (M3.5).
 - **Memory channels**, band-stacking registers, scan control.
 - **CW** keyer/memories, **RTTY** decode; **DV / D-STAR** (DR, call signs, GPS);

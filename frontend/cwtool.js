@@ -69,8 +69,8 @@
 
   // ---- decoder ----
   let analyser = null, timer = 0, raf = 0;
-  let outText = "", curMorse = "", dotMs = 60, lastFlush = true;
-  let lvlPeak = 0, lvlNoise = 0, keyOn = false, edgeT = 0, wordPending = false;
+  let outText = "", curMorse = "", dotMs = 60;
+  let keyOn = false, edgeT = 0, wordPending = false, lastSnr = 0, bandLo = 1, bandHi = 2;
   const out = $("cwOut"), hint = $("cwHint");
 
   function startDecoder() {
@@ -83,8 +83,10 @@
     analyser.fftSize = 1024;                 // ~21 ms window: responsive enough to ~25 wpm
     analyser.smoothingTimeConstant = 0;
     bus.connect(analyser);
-    edgeT = performance.now(); keyOn = false; lvlPeak = 0; lvlNoise = 0; wordPending = false;
-    const bins = analyser.frequencyBinCount, buf = new Uint8Array(bins);
+    edgeT = performance.now(); keyOn = false; wordPending = false; lastSnr = 0; dotMs = 60; curMorse = "";
+    const bins = analyser.frequencyBinCount, buf = new Uint8Array(bins), ny = ctx.sampleRate / 2;
+    bandLo = Math.max(1, Math.round(200 / ny * bins));     // CW audio band for the noise-floor estimate
+    bandHi = Math.min(bins - 1, Math.round(1500 / ny * bins));
     timer = setInterval(() => sample(ctx, buf), 5);   // ~200 Hz envelope sampling
     drawLoop();
   }
@@ -102,26 +104,32 @@
   function sample(ctx, buf) {
     analyser.getByteFrequencyData(buf);
     const b = toneBin(ctx);
-    let mag = 0;
-    for (let i = Math.max(0, b - 1); i <= Math.min(buf.length - 1, b + 1); i++) mag = Math.max(mag, buf[i]);
-    // adaptive peak (fast attack / slow decay) + noise floor (fast down / slow up)
-    lvlPeak += (mag > lvlPeak ? 0.5 : 0.008) * (mag - lvlPeak);
-    lvlNoise += (mag < lvlNoise ? 0.5 : 0.004) * (mag - lvlNoise);
-    const span = lvlPeak - lvlNoise;
+    let toneMag = 0;
+    for (let i = Math.max(0, b - 1); i <= Math.min(buf.length - 1, b + 1); i++) toneMag = Math.max(toneMag, buf[i]);
+    // Noise floor = median of the CW audio band. SNR = how far the tone rises ABOVE the
+    // floor, so broadband noise (which lifts every bin together) gives ~0 SNR and won't
+    // key — only a concentrated tone does. The squelch is the SNR a real signal must clear.
+    const band = [];
+    for (let i = bandLo; i <= bandHi; i++) band.push(buf[i]);
+    band.sort((x, y) => x - y);
+    const floor = band[band.length >> 1] || 0;
+    const snr = toneMag - floor;
+    lastSnr += 0.4 * (snr - lastSnr);                        // smoothed copy for the readout only
+    const sq = +$("cwSquelch").value || 32;
     const now = performance.now();
-    if (span < 18) {                         // no real signal: just let any pending char/word flush
-      flushIdle(now); return;
-    }
-    const thHi = lvlNoise + span * 0.55, thLo = lvlNoise + span * 0.40;
-    if (!keyOn && mag > thHi) { onEdge(true, now); }
-    else if (keyOn && mag < thLo) { onEdge(false, now); }
-    else { flushIdle(now); }
+    // Key on the RAW snr (the ~21 ms FFT window already smooths it) so element timing
+    // stays crisp; the squelch + glitch filter reject noise, not extra envelope lag.
+    const wantOn = keyOn ? snr > sq * 0.55 : snr > sq;       // hysteresis
+    if (wantOn && !keyOn) onEdge(true, now);
+    else if (!wantOn && keyOn) onEdge(false, now);
+    else flushIdle(now);
   }
   function onEdge(down, now) {
     const dur = now - edgeT; edgeT = now; keyOn = down;
     if (down) {                              // key just went DOWN -> the gap that ended was OFF
       classifyGap(dur);
     } else {                                 // key just went UP -> the mark that ended was ON
+      if (dur < Math.max(20, dotMs * 0.4)) return;   // sub-element blip (noise / FFT smear) -> ignore
       if (dur < dotMs * 2) { curMorse += "."; dotMs += 0.25 * (dur - dotMs); }       // dot
       else { curMorse += "-"; dotMs += 0.12 * (dur / 3 - dotMs); }                   // dash
       dotMs = Math.max(20, Math.min(200, dotMs));
@@ -145,6 +153,7 @@
     const gap = now - edgeT;
     if (curMorse && gap > dotMs * 2.5) flushChar();
     if (gap > dotMs * 6 && outText && !outText.endsWith(" ")) { outText += " "; }
+    if (gap > 1500) dotMs = 60;                // recalibrate WPM after a long pause / between overs
   }
   function trimOut() { if (outText.length > 600) outText = outText.slice(-500); }
 
@@ -155,9 +164,11 @@
     }
     $("cwWpm").textContent = Math.round(1200 / dotMs);
     $("cwTone").textContent = (+$("cwToneSet").value || 600);
+    const sqv = $("cwSqVal"); if (sqv) sqv.textContent = (+$("cwSquelch").value || 32);
+    const snrv = $("cwSnr"); if (snrv) snrv.textContent = Math.max(0, Math.round(lastSnr));
     if (hint) {
-      const audible = lvlPeak > 25;
-      hint.textContent = audible ? "listening…" : "turn on 🔊 RX (or play below) to decode";
+      hint.textContent = keyOn ? "▮ signal" : "listening — raise Sq if it decodes noise";
+      hint.classList.toggle("cw-on", keyOn);
     }
     raf = requestAnimationFrame(drawLoop);
   }
@@ -212,6 +223,7 @@
         g.gain.exponentialRampToValueAtTime(0.3, t + 0.006);     // soft keying (no clicks)
         g.gain.setValueAtTime(0.3, t + dur - 0.006);
         g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        g.gain.setValueAtTime(0, t + dur);        // snap to TRUE silence for the gap (0.0001 is still -80 dB)
         t += dur + dot;                       // element + 1-dot intra-character gap
       }
       t += dot * 2;                           // -> 3-dot character gap

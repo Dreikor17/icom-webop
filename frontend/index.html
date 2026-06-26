@@ -156,6 +156,11 @@
           <button class="key sm" id="cwClear">Clear</button>
         </div>
         <div class="cw-row">
+          <span class="cw-lbl" title="Squelch: how far the tone must rise above the band noise floor before decoding">Sq</span>
+          <input type="range" id="cwSquelch" min="6" max="90" step="1" value="32">
+          <span class="cw-num"><b id="cwSqVal">32</b> · snr <b id="cwSnr">0</b></span>
+        </div>
+        <div class="cw-row">
           <input id="cwSend" class="cw-send" placeholder="type → Morse sidetone (no transmit)" maxlength="160">
           <button class="key sm" id="cwPlay" title="Play as a CW sidetone — does NOT key the radio">&#9654;</button>
         </div>

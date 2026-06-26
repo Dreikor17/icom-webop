@@ -194,6 +194,9 @@ select,input,.baud{
 .cw-send{flex:1 1 auto;min-width:0}
 .key.sm{flex:0 0 auto;min-width:0;padding:5px 9px;font-size:12px}
 .cw-hint{font-size:10px;color:var(--txt-dim)}
+.cw-hint.cw-on{color:var(--green)}
+.cw-num{font-size:10px;color:var(--txt-dim);min-width:64px;text-align:right;white-space:nowrap}
+.cw-num b{color:var(--txt);font-family:var(--mono)}
 
 /* ---- controls column ---- */
 /* top deck: display (scope/waterfall) on the left, MAIN DIAL + AUDIO at the top-right */

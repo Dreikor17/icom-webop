@@ -21,9 +21,22 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=8700)
     ap.add_argument("--no-browser", action="store_true")
     ap.add_argument("--reload", action="store_true")
+    ap.add_argument("--ssl-certfile", default=os.environ.get("RADIO_WEBOP_SSL_CERT"),
+                    help="TLS certificate (PEM) — serve HTTPS directly on --port "
+                         "(also reads RADIO_WEBOP_SSL_CERT). Pair with --ssl-keyfile.")
+    ap.add_argument("--ssl-keyfile", default=os.environ.get("RADIO_WEBOP_SSL_KEY"),
+                    help="TLS private key (PEM) for --ssl-certfile (also reads RADIO_WEBOP_SSL_KEY).")
     args = ap.parse_args()
 
-    local = f"http://localhost:{args.port}"
+    # Serve HTTPS directly only if BOTH cert and key are given; otherwise plain HTTP.
+    ssl_kw = {}
+    if args.ssl_certfile and args.ssl_keyfile:
+        ssl_kw = {"ssl_certfile": args.ssl_certfile, "ssl_keyfile": args.ssl_keyfile}
+    elif args.ssl_certfile or args.ssl_keyfile:
+        print("  NOTE: --ssl-certfile and --ssl-keyfile must be given together; serving plain HTTP.")
+
+    scheme = "https" if ssl_kw else "http"
+    local = f"{scheme}://localhost:{args.port}"
     if not args.no_browser and not args.reload:
         try:
             webbrowser.open(local)
@@ -31,10 +44,11 @@ def main() -> None:
             pass
     print(f"Radio WebOp -> {local}")
     if args.host in ("0.0.0.0", "::"):
-        print(f"  Also reachable on all interfaces (LAN / VPN / port-forward) at port {args.port}.")
+        print(f"  Also reachable on all interfaces (LAN / VPN / port-forward) at port {args.port}"
+              f" over {scheme}.")
         print("  WARNING: no login — anyone who can reach this port can control the radio (incl. TX).")
     uvicorn.run("backend.server:app", host=args.host, port=args.port,
-                reload=args.reload, log_level="info")
+                reload=args.reload, log_level="info", **ssl_kw)
 
 
 if __name__ == "__main__":

@@ -51,9 +51,18 @@ Then open <http://localhost:8700>. Pick your **radio model**, choose a transport
   it on (or in networked standby), then choose LAN, enter the IP / user /
   password, Connect.
 - **Remote/mobile:** binds `0.0.0.0` by default, so it's reachable over your LAN, a
-  VPN, or a port-forward. The mic (TX) and USB audio need a secure context, so serve
-  over HTTPS for those (e.g. behind a reverse proxy / TLS tunnel); RX works over plain
-  HTTP. The WebSocket follows the page scheme (`ws://` over HTTP, `wss://` over HTTPS).
+  VPN, or a port-forward. RX and control work over plain HTTP; the mic (TX) and USB
+  audio need a secure context (HTTPS). For HTTPS, either put it behind a reverse proxy
+  / TLS tunnel, or serve TLS **directly on its own port**:
+
+  ```
+  python run.py --ssl-certfile cert.pem --ssl-keyfile key.pem
+  ```
+
+  (or set `RADIO_WEBOP_SSL_CERT` / `RADIO_WEBOP_SSL_KEY`). Then open the `https://`
+  address. The WebSocket follows the page scheme automatically (`ws://` / `wss://`).
+  Note: HTTPS sent to a plain-HTTP instance is rejected as an invalid request — match
+  the scheme to how the server is running.
 
 ## Architecture
 

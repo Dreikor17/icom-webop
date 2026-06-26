@@ -15,6 +15,13 @@ docs/civ_reference*.txt
 
 # local scratch diagnostics
 _diag*.py
+_ssltest/
+
+# TLS cert/key for built-in HTTPS (--ssl-certfile / --ssl-keyfile) — never commit
+certs/
+*.pem
+*.key
+*.crt
 
 # OS / editor
 .DS_Store

@@ -73,8 +73,9 @@ just adding a profile.
 
 ### Platform
 - **More radios** — IC-705, IC-7610, IC-905, IC-7300, etc. (each is just a profile).
-- **Authentication + built-in HTTPS** for safe remote use (today there is no login —
-  restrict by interface / firewall / VPN).
+- **Authentication** for safe remote use (today there is no login — restrict by
+  interface / firewall / VPN). *Built-in HTTPS shipped* — serve TLS directly with
+  `run.py --ssl-certfile/--ssl-keyfile` (or `RADIO_WEBOP_SSL_CERT/_KEY`).
 - **Remote power-on** from networked standby where the radio supports it.
 - Audio: selectable **codec / sample-rate**, recording, lower-latency options.
 

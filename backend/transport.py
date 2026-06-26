@@ -116,7 +116,7 @@ class SimTransport(Transport):
             "sub":  {"freq": sub_freq, "mode": 0x05, "filt": 0x01},    # FM
         }
         self.att = 0x00
-        self.span = 50_000         # full span Hz (±25k)
+        self.span = 500_000        # full span Hz (±250k, widest)
         self.scope_center = True   # center vs fixed
         self.scope_on = False
         self.scope_out = False

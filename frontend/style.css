@@ -366,7 +366,7 @@ select,input,.baud{
   .radio{
     flex:1 1 auto;min-height:0;max-width:none;margin:0;
     display:grid;gap:12px;padding:12px;
-    grid-template-columns:236px 1fr;             /* one control section wide | the rest */
+    grid-template-columns:272px 1fr;             /* one control section wide | the rest */
   }
   /* LEFT: single compact column of controls (scopepane comes first in the DOM, so place explicitly) */
   .controls{grid-column:1;grid-row:1;min-height:0;overflow-y:auto;

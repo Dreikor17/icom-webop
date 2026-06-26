@@ -639,7 +639,14 @@
       for (const p of j.ports) {
         const o = document.createElement("option");
         o.value = p.device; o.dataset.kind = "serial";
-        o.textContent = `${p.device} — ${p.description}`.slice(0, 48);
+        // keep the DISTINGUISHING part of the description (e.g. "Enhanced COM Port") —
+        // the chip name is the same on both Yaesu ports, and CAT is only on Enhanced.
+        let desc = p.description || "";
+        const colon = desc.indexOf(":");
+        if (colon >= 0) desc = desc.slice(colon + 1).trim();
+        o.textContent = (`${p.device} — ${desc}` || p.device).slice(0, 64);
+        o.title = `${p.device} — ${p.description}`;
+        if (/enhanced/i.test(p.description || "")) o.dataset.enhanced = "1";
         sel.insertBefore(o, lanOpt);
       }
       return j;
@@ -711,6 +718,13 @@
     if (c.transport === "serial" && c.port && [...sel.options].some((o) => o.dataset.kind === "serial" && o.value === c.port)) v = c.port;
     else if (c.transport === "lan") { const lo = sel.querySelector('option[value="lan"]'); if (lo && !lo.hidden) v = "lan"; }
     sel.value = v;
+    if (v === "sim" && !c.transport) {            // no saved choice: a COM-only radio prefers its Enhanced (CAT) port
+      const p = radios.find((r) => r.id === id);
+      if (p && p.has_network === false) {
+        const enh = [...sel.options].find((o) => o.dataset.kind === "serial" && o.dataset.enhanced);
+        if (enh) sel.value = enh.value;
+      }
+    }
     wantRxDev = c.rxDev || null; wantMicDev = c.micDev || null;
     updateConnFields();                             // shows the right fields + (serial) loads audio devices
   }

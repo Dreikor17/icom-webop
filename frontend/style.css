@@ -303,16 +303,20 @@ select,input,.baud{
 .sl input[type=range]{
   --p:50%;
   -webkit-appearance:none; appearance:none;
-  width:100%; height:6px; border-radius:3px; cursor:pointer; margin:6px 0;
+  width:100%; height:16px; background:transparent; cursor:pointer; margin:2px 0;
+}
+/* WebKit: the track holds the fill; the thumb travels along it edge-to-edge */
+.sl input[type=range]::-webkit-slider-runnable-track{
+  height:6px; border-radius:3px; border:1px solid #14425c;
   background:linear-gradient(90deg, var(--accent) 0 var(--p), #0e2a3a var(--p) 100%);
-  border:1px solid #14425c;
 }
 .sl input[type=range]::-webkit-slider-thumb{
-  -webkit-appearance:none; appearance:none;
+  -webkit-appearance:none; appearance:none; margin-top:-6px;
   width:15px; height:15px; border-radius:50%; background:#eaf6ff; border:2px solid var(--accent);
   box-shadow:0 1px 3px rgba(0,0,0,.5);
 }
 .sl input[type=range]:hover::-webkit-slider-thumb{background:#fff}
+/* Firefox: native progress fill stops at the thumb */
 .sl input[type=range]::-moz-range-track{height:6px;border-radius:3px;background:#0e2a3a;border:1px solid #14425c}
 .sl input[type=range]::-moz-range-progress{height:6px;border-radius:3px;background:var(--accent)}
 .sl input[type=range]::-moz-range-thumb{

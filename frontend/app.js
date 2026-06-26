@@ -424,10 +424,13 @@
     split.addEventListener("pointerdown", (e) => {
       down = true; split.classList.add("drag");
       try { split.setPointerCapture(e.pointerId); } catch (_) {}
-      e.preventDefault();
+      // keep this gesture on the split: don't let the wrap's tuning handler also
+      // start (it would steal the pointer capture, so our pointerup never fires).
+      e.preventDefault(); e.stopPropagation();
     });
     split.addEventListener("pointermove", (e) => {
-      if (!down) return;
+      if (!down || !(e.buttons & 1)) return;   // ignore plain hover moves after release
+      e.stopPropagation();
       const r = wrap.getBoundingClientRect();
       spec.style.height = Math.max(60, Math.min(r.height - 110, e.clientY - r.top)) + "px";
       scope.resize();
@@ -439,6 +442,7 @@
     };
     split.addEventListener("pointerup", end);
     split.addEventListener("pointercancel", end);
+    split.addEventListener("lostpointercapture", end);   // safety: capture lost -> stop dragging
   })();
 
   // ---- day / night theme ----

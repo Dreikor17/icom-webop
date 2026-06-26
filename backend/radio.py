@@ -23,12 +23,15 @@ PTT_TIMEOUT = 120              # PTT failsafe: auto-unkey after this many second
 
 # CI-V 0x14 level sub-command -> state key
 LEVEL_KEYS = {0x01: "af", 0x02: "rf", 0x03: "sql", 0x0A: "rfpwr",
-              0x06: "nr_level", 0x12: "nb_level", 0x07: "pbt1", 0x08: "pbt2", 0x0D: "mnotch_pos"}
-# RX-DSP on/off toggles: state key -> CI-V 0x16 sub-command
-RX_FUNCS = {"nb": 0x22, "nr": 0x40, "anotch": 0x41, "mnotch": 0x48}
-# CI-V 0x16 read sub -> state key (preamp + RX DSP)
+              0x06: "nr_level", 0x12: "nb_level", 0x07: "pbt1", 0x08: "pbt2", 0x0D: "mnotch_pos",
+              0x0B: "mic", 0x0E: "comp_level", 0x15: "mon_level", 0x16: "vox_gain"}  # M3 TX
+# function on/off toggles: state key -> CI-V 0x16 sub-command
+RX_FUNCS = {"nb": 0x22, "nr": 0x40, "anotch": 0x41, "mnotch": 0x48,
+            "comp": 0x44, "vox": 0x46, "mon": 0x45}                  # M3 TX adds COMP/VOX/MON
+# CI-V 0x16 read sub -> state key (preamp + RX DSP + TX toggles + TBW)
 FUNC_KEYS = {0x02: "preamp", 0x22: "nb", 0x40: "nr", 0x41: "anotch",
-             0x48: "mnotch", 0x12: "agc", 0x57: "mnotch_w"}
+             0x48: "mnotch", 0x12: "agc", 0x57: "mnotch_w",
+             0x44: "comp", 0x46: "vox", 0x45: "mon", 0x58: "tbw"}
 
 ScopeCb = Callable[[civ.ScopeSweep], None]
 StateCb = Callable[[dict], None]
@@ -106,6 +109,13 @@ class Radio:
             "anotch": 0, "mnotch": 0, "mnotch_w": 0, "mnotch_pos": 128,
             "agc": 2,                          # 1 FAST, 2 MID, 3 SLOW
             "pbt1": 128, "pbt2": 128,          # twin PBT, 128 = center
+            # TX (M3)
+            "mic": 128, "comp": 0, "comp_level": 128,
+            "vox": 0, "vox_gain": 128, "mon": 0, "mon_level": 128,
+            "tbw": 0,                          # SSB TX bandwidth: 0 WIDE, 1 MID, 2 NAR
+            "rit": 0, "rit_freq": 0,           # RIT on + offset Hz (signed, ±9999)
+            "split": 0, "duplex": 0,           # split on; duplex 0 SIMP, 1 DUP-, 2 DUP+
+            "offset": 600000,                  # duplex offset Hz
         }
 
     def _b(self, cmd: int, sub: Optional[int] = None, data: bytes = b"") -> bytes:
@@ -149,10 +159,16 @@ class Radio:
 
         self._write(self._b(0x03))                       # read freq
         self._write(self._b(0x04))                       # read mode
-        for sub in (0x02, 0x22, 0x40, 0x41, 0x48, 0x12, 0x57):  # preamp + RX-DSP on/off + AGC
+        for sub in (0x02, 0x22, 0x40, 0x41, 0x48, 0x12, 0x57,
+                    0x44, 0x45, 0x46, 0x58):             # preamp + RX-DSP + (M3) COMP/MON/VOX/TBW
             self._write(self._b(0x16, sub))
-        for sub in (0x06, 0x12, 0x07, 0x08, 0x0D):       # NR/NB level + twin PBT + notch position
+        for sub in (0x06, 0x12, 0x07, 0x08, 0x0D,
+                    0x0B, 0x0E, 0x15, 0x16):             # RX levels + (M3) MIC/COMP/MON/VOX
             self._write(self._b(0x14, sub))
+        self._write(self._b(0x21, 0x00))                 # RIT frequency
+        self._write(self._b(0x21, 0x01))                 # RIT on/off
+        self._write(self._b(0x0F))                       # split / duplex
+        self._write(self._b(0x0C))                       # duplex offset
 
         self._poll_stop.clear()
         self._poll_thread = threading.Thread(target=self._poll, daemon=True, name="civ-poll")
@@ -222,6 +238,8 @@ class Radio:
             try:
                 if self.state.get("ptt"):                    # never leave keyed
                     self._write(self._b(0x1C, 0x00, b"\x00"))
+                if self.state.get("vox"):                    # never leave VOX able to auto-key
+                    self._write(self._b(0x16, 0x46, b"\x00"))
                 if self._mod_managed and self._modsrc_orig is not None:   # restore MOD Input
                     self._write(self._b(0x1A, 0x05, bytes(self.profile.mod_dataoff) + bytes([self._modsrc_orig])))
                     if self._lanmod_orig == 0:
@@ -318,6 +336,23 @@ class Radio:
                 key = FUNC_KEYS.get(s)
                 if key:
                     self.state[key] = d[0]; changed = True
+        elif c == 0x21:                                  # RIT
+            if s == 0x00 and len(d) >= 3:                # RIT frequency (signed BCD)
+                self.state["rit_freq"] = civ.rit_from_bcd(d); changed = True
+            elif s == 0x01 and d:                        # RIT on/off
+                self.state["rit"] = d[0]; changed = True
+        elif c == 0x0F:                                  # split / duplex status (read reply)
+            v = s if s is not None else (d[0] if d else 0)
+            if v == 0x00:                                # simplex / split off
+                self.state["split"] = 0; self.state["duplex"] = 0; changed = True
+            elif v == 0x01:                              # split on
+                self.state["split"] = 1; changed = True
+            elif v in (0x11, 0x12):                      # DUP- / DUP+
+                self.state["duplex"] = v - 0x10; self.state["split"] = 0; changed = True
+        elif c == 0x0C:                                  # duplex offset read (3-byte BCD, 100 Hz LSB)
+            raw = self._payload(s, d)
+            if raw:
+                self.state["offset"] = civ.offset_from_bcd(raw); changed = True
         elif c == 0x1A and s == 0x05 and len(d) >= 3:    # MOD Input read response
             dataoff, level = self.profile.mod_dataoff, self.profile.lan_mod_level
             if d[0] == dataoff[0] and d[1] == dataoff[1] and self._modsrc_orig is None:
@@ -343,9 +378,13 @@ class Radio:
     def _poll(self) -> None:
         tick = 0
         while not self._poll_stop.is_set():
-            # PTT failsafe: never leave the radio keyed past the time-out
-            if self.state["ptt"] and self._ptt_deadline and time.monotonic() >= self._ptt_deadline:
-                self.set_ptt(False)
+            # TX failsafe: never leave the radio able to transmit past the time-out —
+            # covers both latched PTT and VOX (which auto-keys off the modulator audio).
+            if self._ptt_deadline and time.monotonic() >= self._ptt_deadline:
+                if self.state["ptt"]:
+                    self.set_ptt(False)
+                if self.state.get("vox"):
+                    self.set_rx_func("vox", False)
             self._write(self._b(0x15, 0x02))             # S-meter (active band)
             if self.state["meter"] != "S":               # selected TX meter for the big bar
                 self._write(self._b(0x15, civ.METER_SUBS[self.state["meter"]]))
@@ -437,6 +476,11 @@ class Radio:
         if sub is None:
             return
         self.state[name] = 1 if on else 0
+        if name == "vox":                                 # VOX can auto-key TX -> bound it like PTT
+            if on:
+                self._ptt_deadline = time.monotonic() + PTT_TIMEOUT
+            elif not self.state["ptt"]:
+                self._ptt_deadline = None
         self._write(self._b(0x16, sub, bytes([1 if on else 0])))
         self._emit_state()
 
@@ -450,6 +494,38 @@ class Radio:
         width = max(0, min(2, int(width)))
         self.state["mnotch_w"] = width
         self._write(self._b(0x16, 0x57, bytes([width])))
+        self._emit_state()
+
+    # -- M3 TX actions -------------------------------------------------------
+    def set_tbw(self, w: int) -> None:
+        w = max(0, min(2, int(w)))                        # SSB TX bandwidth WIDE/MID/NAR
+        self.state["tbw"] = w
+        self._write(self._b(0x16, 0x58, bytes([w])))
+        self._emit_state()
+
+    def set_rit(self, on: bool) -> None:
+        self.state["rit"] = 1 if on else 0
+        self._write(self._b(0x21, 0x01, bytes([1 if on else 0])))
+        self._emit_state()
+
+    def set_rit_freq(self, hz: int) -> None:
+        hz = max(-9999, min(9999, int(hz)))
+        self.state["rit_freq"] = hz
+        self._write(self._b(0x21, 0x00, civ.rit_to_bcd(hz)))
+        self._emit_state()
+
+    def set_split(self, on: bool) -> None:
+        self.state["split"] = 1 if on else 0
+        if on:
+            self.state["duplex"] = 0                       # split and duplex are exclusive modes
+        self._write(self._b(0x0F, 0x01 if on else 0x00))
+        self._emit_state()
+
+    def set_duplex(self, mode: int) -> None:
+        mode = max(0, min(2, int(mode)))                  # 0 SIMP, 1 DUP-, 2 DUP+
+        self.state["duplex"] = mode
+        self.state["split"] = 0
+        self._write(self._b(0x0F, 0x10 + mode))
         self._emit_state()
 
     def set_band(self, band: str) -> None:
@@ -471,7 +547,10 @@ class Radio:
     def set_ptt(self, tx: bool) -> None:
         tx = bool(tx)
         self.state["ptt"] = tx
-        self._ptt_deadline = (time.monotonic() + PTT_TIMEOUT) if tx else None
+        if tx:
+            self._ptt_deadline = time.monotonic() + PTT_TIMEOUT
+        elif not self.state.get("vox"):
+            self._ptt_deadline = None                     # keep armed while VOX is still active
         self._write(self._b(0x1C, 0x00, bytes([1 if tx else 0])))
         self._emit_state()
 

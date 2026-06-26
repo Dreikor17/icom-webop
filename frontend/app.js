@@ -8,7 +8,8 @@
   let ws = null, state = {}, step = 25000;
   let radios = [], currentRadio = null;          // radio profiles from /api/radios
   let pttIntended = false, pttKeyedAt = 0;       // PTT toggle state + time keyed
-  const LEVELS = ["af", "rf", "sql", "rfpwr", "nb_level", "nr_level", "pbt1", "pbt2", "mnotch_pos"];
+  const LEVELS = ["af", "rf", "sql", "rfpwr", "nb_level", "nr_level", "pbt1", "pbt2", "mnotch_pos",
+                  "mic", "comp_level", "vox_gain", "mon_level"];
 
   // ---- frequency formatting (Icom dotted readout) ----
   function formatFreq(hz) {
@@ -131,6 +132,17 @@
     setActive(".agc", b => +b.dataset.mode === (s.agc || 2));
     setActive(".mnw", b => +b.dataset.width === (s.mnotch_w || 0));
 
+    // TX toggles + TBW + SPLIT/RIT (M3)
+    for (const f of ["comp", "vox", "mon"]) {
+      const el = $(f + "Btn");
+      if (el) el.classList.toggle("on", (s[f] || 0) > 0);
+    }
+    setActive(".tbw", b => +b.dataset.w === (s.tbw || 0));
+    setActive(".dup", b => +b.dataset.mode === (s.duplex || 0));
+    if ($("splitBtn")) $("splitBtn").classList.toggle("on", (s.split || 0) > 0);
+    if ($("ritBtn")) $("ritBtn").classList.toggle("on", (s.rit || 0) > 0);
+    if ($("ritVal")) $("ritVal").textContent = (s.rit_freq > 0 ? "+" : "") + (s.rit_freq || 0) + " Hz";
+
     // level sliders (don't fight an active drag) + value readouts
     for (const t of LEVELS) {
       const el = $(t);
@@ -198,6 +210,12 @@
     else if (act === "rxfunc") send({ action: "rx_func", name: b.dataset.fn, on: !((state[b.dataset.fn] || 0) > 0) });
     else if (act === "agc") send({ action: "agc", mode: +b.dataset.mode });
     else if (act === "mnotch_w") send({ action: "mnotch_w", width: +b.dataset.width });
+    else if (act === "tbw") send({ action: "tbw", w: +b.dataset.w });
+    else if (act === "duplex") send({ action: "duplex", mode: +b.dataset.mode });
+    else if (act === "splittog") send({ action: "split", on: !((state.split || 0) > 0) });
+    else if (act === "rittog") send({ action: "rit", on: !((state.rit || 0) > 0) });
+    else if (act === "rit_d") { const v = Math.max(-9999, Math.min(9999, (state.rit_freq || 0) + (+b.dataset.d))); state.rit_freq = v; send({ action: "rit_freq", hz: v }); }
+    else if (act === "rit_z") { state.rit_freq = 0; send({ action: "rit_freq", hz: 0 }); }
     else if (act === "mode") send({ action: "set_mode", mode: b.dataset.mode });
     else if (act === "filter") send({ action: "set_filter", filter: +b.dataset.filter });
     else if (act === "vfo") send({ action: "vfo", code: +b.dataset.code });

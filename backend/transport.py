@@ -121,9 +121,13 @@ class SimTransport(Transport):
         self.scope_on = False
         self.scope_out = False
         self.levels = {0x01: 128, 0x02: 200, 0x03: 0, 0x0A: 0,   # AF/RF/SQL/RFpwr (power 0%)
-                       0x06: 0, 0x12: 0, 0x07: 128, 0x08: 128}    # NR/NB level, twin PBT (center)
+                       0x06: 0, 0x12: 0, 0x07: 128, 0x08: 128,    # NR/NB level, twin PBT (center)
+                       0x0B: 128, 0x0E: 128, 0x15: 128, 0x16: 128}  # MIC/COMP/MON/VOX level (M3)
         self.funcs = {0x02: 0, 0x50: 0, 0x22: 0, 0x40: 0,        # preamp, dial-lock, NB, NR
-                      0x41: 0, 0x48: 0, 0x12: 2, 0x57: 0}          # A-notch, M-notch, AGC=MID, notch-W
+                      0x41: 0, 0x48: 0, 0x12: 2, 0x57: 0,          # A-notch, M-notch, AGC=MID, notch-W
+                      0x44: 0, 0x45: 0, 0x46: 0, 0x58: 0}          # COMP, MON, VOX, TBW (M3)
+        self.rit_on = 0; self.rit_freq = 0
+        self.split = 0; self.duplex = 0; self.offset = 600000
 
     @property
     def name(self) -> str:
@@ -209,6 +213,44 @@ class SimTransport(Transport):
                     self._ok()
                 else:
                     self._emit(0x16, s, bytes([self.funcs.get(s, 0)]))
+            elif c == 0x21:                                 # RIT
+                if s == 0x00:
+                    if d:
+                        self.rit_freq = civ.rit_from_bcd(d); self._ok()
+                    else:
+                        self._emit(0x21, 0x00, civ.rit_to_bcd(self.rit_freq))
+                elif s == 0x01:
+                    if d:
+                        self.rit_on = d[0]; self._ok()
+                    else:
+                        self._emit(0x21, 0x01, bytes([self.rit_on]))
+                else:
+                    self._ok()
+            elif c == 0x0F:                                 # split / duplex (mutually exclusive)
+                if s is None:                               # read -> one documented status byte
+                    if self.split:
+                        self._emit(0x0F, 0x01)
+                    elif self.duplex == 1:
+                        self._emit(0x0F, 0x11)
+                    elif self.duplex == 2:
+                        self._emit(0x0F, 0x12)
+                    else:
+                        self._emit(0x0F, 0x00)
+                elif s == 0x00:
+                    self.split = 0; self._ok()
+                elif s == 0x01:
+                    self.split = 1; self.duplex = 0; self._ok()
+                elif s in (0x10, 0x11, 0x12, 0x13):
+                    self.duplex = min(2, s - 0x10); self.split = 0; self._ok()
+                else:
+                    self._ok()
+            elif c == 0x0C:                                 # read duplex offset (3-byte BCD)
+                self._emit(0x0C, None, civ.offset_to_bcd(self.offset))
+            elif c == 0x0D:                                 # set duplex offset
+                raw = (bytes([s]) if s is not None else b"") + d
+                if raw:
+                    self.offset = civ.offset_from_bcd(raw)
+                self._ok()
             elif c == 0x19:                                 # read radio id
                 self._emit(0x19, 0x00, bytes([self._civ_addr]))
             elif c == 0x18:                                 # power on/off

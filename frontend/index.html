@@ -202,6 +202,45 @@
       <label class="sl"><span>NOTCH</span><input type="range" min="0" max="255" id="mnotch_pos" data-target="mnotch_pos"><b class="sl-val" id="mnotch_posVal">128</b></label>
     </div>
 
+    <div class="grp" id="txGrp">
+      <div class="grp-title">TX</div>
+      <div class="row wrap">
+        <button class="key tog" data-act="rxfunc" data-fn="comp" id="compBtn">COMP</button>
+        <button class="key tog" data-act="rxfunc" data-fn="vox" id="voxBtn">VOX</button>
+        <button class="key tog" data-act="rxfunc" data-fn="mon" id="monBtn">MON</button>
+      </div>
+      <div class="row step-row">
+        <span class="step-label">TBW</span>
+        <button class="key tbw" data-act="tbw" data-w="0">WIDE</button>
+        <button class="key tbw" data-act="tbw" data-w="1">MID</button>
+        <button class="key tbw" data-act="tbw" data-w="2">NAR</button>
+      </div>
+      <label class="sl"><span>MIC</span><input type="range" min="0" max="255" id="mic" data-target="mic"><b class="sl-val" id="micVal">128</b></label>
+      <label class="sl"><span>COMP</span><input type="range" min="0" max="255" id="comp_level" data-target="comp_level"><b class="sl-val" id="comp_levelVal">128</b></label>
+      <label class="sl"><span>VOX</span><input type="range" min="0" max="255" id="vox_gain" data-target="vox_gain"><b class="sl-val" id="vox_gainVal">128</b></label>
+      <label class="sl"><span>MON</span><input type="range" min="0" max="255" id="mon_level" data-target="mon_level"><b class="sl-val" id="mon_levelVal">128</b></label>
+    </div>
+
+    <div class="grp" id="splitGrp">
+      <div class="grp-title">SPLIT · RIT</div>
+      <div class="row">
+        <button class="key tog" data-act="splittog" id="splitBtn">SPLIT</button>
+      </div>
+      <div class="row step-row">
+        <span class="step-label">DUP</span>
+        <button class="key dup" data-act="duplex" data-mode="0">SIMP</button>
+        <button class="key dup" data-act="duplex" data-mode="1">DUP&minus;</button>
+        <button class="key dup" data-act="duplex" data-mode="2">DUP+</button>
+      </div>
+      <div class="row step-row">
+        <button class="key tog" data-act="rittog" id="ritBtn">RIT</button>
+        <button class="key" data-act="rit_d" data-d="-100">&minus;</button>
+        <span class="span-val" id="ritVal">0 Hz</span>
+        <button class="key" data-act="rit_d" data-d="100">+</button>
+        <button class="key" data-act="rit_z">0</button>
+      </div>
+    </div>
+
     <div class="grp">
       <div class="grp-title">FREQUENCY</div>
       <div class="row">

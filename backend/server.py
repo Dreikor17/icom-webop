@@ -34,7 +34,8 @@ FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
 
 LEVEL_TARGETS = {"af": 0x01, "rf": 0x02, "sql": 0x03, "rfpwr": 0x0A,
                  "nr_level": 0x06, "nb_level": 0x12, "pbt1": 0x07, "pbt2": 0x08,
-                 "mnotch_pos": 0x0D}
+                 "mnotch_pos": 0x0D,
+                 "mic": 0x0B, "comp_level": 0x0E, "mon_level": 0x15, "vox_gain": 0x16}
 
 radio = Radio()
 
@@ -232,6 +233,16 @@ def _handle_cmd(cmd: dict) -> None:
             radio.set_agc(int(cmd["mode"]))
         elif action == "mnotch_w":
             radio.set_mnotch_w(int(cmd["width"]))
+        elif action == "tbw":
+            radio.set_tbw(int(cmd["w"]))
+        elif action == "rit":
+            radio.set_rit(bool(cmd["on"]))
+        elif action == "rit_freq":
+            radio.set_rit_freq(int(cmd["hz"]))
+        elif action == "split":
+            radio.set_split(bool(cmd["on"]))
+        elif action == "duplex":
+            radio.set_duplex(int(cmd["mode"]))
         elif action == "ptt":
             radio.set_ptt(bool(cmd["tx"]))
     except (KeyError, ValueError, TypeError):

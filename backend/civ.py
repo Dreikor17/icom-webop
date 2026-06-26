@@ -135,6 +135,44 @@ def bcd_to_level(data: bytes) -> int:
     return hundreds * 100 + tens * 10 + ones
 
 
+def rit_to_bcd(hz: int) -> bytes:
+    """RIT/ΔTX offset (command 21 00): 2 LE BCD bytes (1Hz..1kHz) + sign (00=+,01=-)."""
+    sign = 0 if hz >= 0 else 1
+    mag = min(9999, abs(int(hz)))
+    d = [0, 0, 0, 0]
+    for i in range(4):
+        d[i] = mag % 10
+        mag //= 10
+    return bytes([(d[1] << 4) | d[0], (d[3] << 4) | d[2], sign])
+
+
+def rit_from_bcd(data: bytes) -> int:
+    if len(data) < 3:
+        return 0
+    lo, hi, sign = data[0], data[1], data[2]
+    mag = (hi >> 4) * 1000 + (hi & 0x0F) * 100 + (lo >> 4) * 10 + (lo & 0x0F)
+    return -mag if sign else mag
+
+
+def offset_to_bcd(hz: int) -> bytes:
+    """Duplex offset (command 0C/0D): 3-byte BCD, 100 Hz LSB. Digits are
+    1kHz/100Hz | 100kHz/10kHz | 10MHz/1MHz — NOT the 5-byte main-freq layout."""
+    hz = max(0, int(hz))
+    d0 = (((hz // 1000) % 10) << 4) | ((hz // 100) % 10)
+    d1 = (((hz // 100000) % 10) << 4) | ((hz // 10000) % 10)
+    d2 = (((hz // 10000000) % 10) << 4) | ((hz // 1000000) % 10)
+    return bytes([d0, d1, d2])
+
+
+def offset_from_bcd(data: bytes) -> int:
+    if len(data) < 3:
+        return 0
+    b0, b1, b2 = data[0], data[1], data[2]
+    return ((b0 >> 4) * 1000 + (b0 & 0x0F) * 100
+            + (b1 >> 4) * 100000 + (b1 & 0x0F) * 10000
+            + (b2 >> 4) * 10000000 + (b2 & 0x0F) * 1000000)
+
+
 # ---------------------------------------------------------------------------
 # Frame building
 # ---------------------------------------------------------------------------

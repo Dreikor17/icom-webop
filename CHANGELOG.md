@@ -3,6 +3,21 @@
 All notable changes to **Radio WebOp** are documented here. This project adheres
 to [Semantic Versioning](https://semver.org).
 
+## [0.2.02] — 2026-06-26
+
+Hotfix re-release of 0.2.2, which crashed at startup on a fresh install.
+
+### Fixed
+- **Startup crash on current Starlette.** A clean `pip install` pulls the latest
+  Starlette, which removed the `on_startup=` / `on_shutdown=` constructor arguments
+  (deprecated since 0.26). 0.2.2 failed at import with `Starlette.__init__() got an
+  unexpected keyword argument 'on_startup'`. The server now uses a `lifespan` handler,
+  which works on old and new Starlette. (A dev box's older Starlette had masked it.)
+- **Scope marker jitter in center mode.** The tuned-channel marker and filter-width
+  overlay are now anchored to the scope center while tuning, instead of bouncing
+  off-center (the optimistic tuned freq raced ahead of the sweep's reported center)
+  and snapping back. Fixed mode still tracks the tuned freq across the window.
+
 ## [0.2.2] — 2026-06-26
 
 Goes **multi-manufacturer** (first non-Icom radio), adds overlay tools over the
@@ -145,6 +160,7 @@ live spectrum scope + waterfall.
 - Mic capture (TX) needs a secure context (HTTPS or localhost), so it won't run
   over plain-HTTP remote access; RX audio playback works over HTTP.
 
+[0.2.02]: https://github.com/Dreikor17/radio-webop/releases/tag/v0.2.02
 [0.2.2]: https://github.com/Dreikor17/radio-webop/releases/tag/v0.2.2
 [0.2.1]: https://github.com/Dreikor17/radio-webop/releases/tag/v0.2.1
 [0.2.0]: https://github.com/Dreikor17/radio-webop/releases/tag/v0.2.0

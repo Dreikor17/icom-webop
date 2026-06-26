@@ -146,7 +146,7 @@
     // level sliders (don't fight an active drag) + value readouts
     for (const t of LEVELS) {
       const el = $(t);
-      if (el && document.activeElement !== el && s[t] != null) el.value = s[t];
+      if (el && document.activeElement !== el && s[t] != null) { el.value = s[t]; setFill(el); }
       if (s[t] != null) $(t + "Val").textContent = fmtLevel(t, s[t]);
     }
 
@@ -190,6 +190,38 @@
   }
   function setActive(sel, pred) {
     document.querySelectorAll(sel).forEach(b => b.classList.toggle("active", pred(b)));
+  }
+
+  // hover tooltips: just what each abbreviation stands for (no descriptions)
+  const TITLES = {
+    "NB": "Noise Blanker", "NR": "Noise Reduction", "A-NOTCH": "Auto Notch", "M-NOTCH": "Manual Notch",
+    "NOTCH": "Manual Notch", "AGC": "Automatic Gain Control",
+    "PBT1": "Passband Tuning 1", "PBT2": "Passband Tuning 2",
+    "P.AMP": "Preamplifier", "ATT": "Attenuator", "LOCK": "Dial Lock",
+    "COMP": "Speech Compressor", "VOX": "Voice-Operated Transmit", "MON": "Monitor",
+    "TBW": "Transmit Bandwidth", "RIT": "Receiver Incremental Tuning",
+    "SPLIT": "Split", "DUP": "Duplex", "SIMP": "Simplex", "PTT": "Push To Talk",
+    "AF": "Audio Gain", "RF": "RF Gain", "SQL": "Squelch", "PWR": "RF Power",
+    "MIC": "Microphone Gain", "VOL": "Volume",
+    "FIL1": "Filter 1", "FIL2": "Filter 2", "FIL3": "Filter 3",
+    "LSB": "Lower Sideband", "USB": "Upper Sideband", "CW": "Continuous Wave", "CW-R": "CW Reverse",
+    "AM": "Amplitude Modulation", "FM": "Frequency Modulation",
+    "RTTY": "Radio Teletype", "RTTY-R": "RTTY Reverse", "DV": "Digital Voice", "DD": "Digital Data",
+    "S": "S-meter", "PO": "Power Output", "SWR": "Standing Wave Ratio", "ALC": "Auto Level Control",
+    "Vd": "Drain Voltage", "Id": "Drain Current", "CENT": "Center", "FIX": "Fixed",
+    "STEP": "Tuning Step",
+  };
+  function applyTitles(root) {
+    const r = root || document;
+    r.querySelectorAll(".key,.m-btn,.sc-btn,.step-label").forEach(el => {
+      const t = (el.textContent || "").trim();
+      if (TITLES[t] && !el.title) el.title = TITLES[t];
+    });
+    r.querySelectorAll(".sl").forEach(row => {
+      const lab = row.querySelector("span");
+      const t = lab && (lab.textContent || "").trim();
+      if (t && TITLES[t] && !row.title) row.title = TITLES[t];
+    });
   }
 
   // ---- button delegation ----
@@ -246,12 +278,21 @@
 
   // level sliders (power shown as %, others 0–255)
   function fmtLevel(t, v) { return t === "rfpwr" ? Math.round(v / 255 * 100) + "%" : "" + v; }
+  function setFill(el) {
+    const mn = +el.min || 0, mx = +el.max || 100;
+    el.style.setProperty("--p", Math.round((el.value - mn) / (mx - mn) * 100) + "%");
+  }
   for (const t of LEVELS) {
     $(t).addEventListener("input", e => {
       send({ action: "set_level", target: t, value: +e.target.value });
       $(t + "Val").textContent = fmtLevel(t, +e.target.value);
     });
   }
+  // drive the visual fill (--p) for every slider, incl. VOL
+  document.querySelectorAll(".sl input[type=range]").forEach(el => {
+    setFill(el);
+    el.addEventListener("input", () => setFill(el));
+  });
 
   // PTT — tap to toggle (works on touch + mouse). Latched TX auto-releases on
   // screen-lock / app-switch, page unload, and the failsafe time-out (which the
@@ -302,10 +343,11 @@
   function scEnd(e) {
     if (!scDown) return; scDown = false;
     try { wrap.releasePointerCapture(e.pointerId); } catch (_) {}
-    if (scMoved <= 6) {                               // a tap -> tune to that point
+    if (scMoved <= 6) {                               // a tap -> tune to where you clicked
       const b = scBounds();
       const freq = b[0] + (scStartX / scope.W) * (b[1] - b[0]);
-      send({ action: "set_freq", hz: Math.round(freq / step) * step });
+      const SNAP = 100;                               // fine snap so it lands at the click, not the coarse step
+      send({ action: "set_freq", hz: Math.round(freq / SNAP) * SNAP });
     }
   }
   wrap.addEventListener("pointerup", scEnd);
@@ -387,6 +429,7 @@
     const sub = $("rowSub"); if (sub) sub.style.display = p.dual_watch ? "" : "none";
     const pa = $("preampBtn"); if (pa) pa.style.display = p.has_preamp ? "" : "none";
     const at = $("attBtn"); if (at) at.style.display = p.has_att ? "" : "none";
+    applyTitles();
   }
   $("radioSel").addEventListener("change", () => { renderRadio(selectedRadio()); saveConn(); });
 

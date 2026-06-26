@@ -6,34 +6,59 @@ each supported radio is a **profile** in `backend/profiles.py` (address, bands,
 modes, filter widths, MOD-Input numbers, power behaviour), so adding a radio is
 just adding a profile.
 
-## Done — v0.2.0
-- **Unified multi-radio app** with a radio-model selector (IC-9700, IC-7300MK2);
-  bands/modes/steps render from the selected profile.
-- Transports behind one interface: **USB CI-V**, **LAN** (RS-BA1 UDP), and a
-  built-in **simulator**.
-- Spectrum **scope + waterfall** with the tuned-channel marker and filter
-  passband overlaid.
-- Tuning: main dial, **tap-to-select and drag/slide on the waterfall**, step
-  select, direct entry, mouse wheel.
-- **RX audio** playback + **mic TX** over LAN; MOD Input auto-set to LAN on
-  connect (restored on disconnect).
-- **PTT** tap-to-toggle with a **failsafe time-out** (client countdown + a
-  server-side auto-unkey), plus release on background / disconnect.
-- **Mobile-friendly** responsive layout; remembers radio + connection.
+## Done
+
+### v0.2.0 — unified multi-radio base
+- **Multi-radio app** with a model selector (IC-9700, IC-7300MK2); bands/modes/
+  steps render from the selected profile.
+- Transports behind one interface: **USB CI-V**, **LAN** (RS-BA1 UDP), simulator.
+- **Scope + waterfall** with the tuned marker + filter passband; tap-to-select and
+  drag/slide tuning, step, direct entry, wheel.
+- **RX audio** + **mic TX** over LAN (auto MOD-Input → LAN); **PTT** tap-to-toggle
+  with a failsafe time-out; mobile-friendly; remembers radio + connection.
+
+### v0.2.1 — IC-9700 build-out (M1–M3)
+- **Dual-watch** MAIN/SUB Radio view + **multi-meter** + core RX (preamp/att/lock).
+- **RX DSP** — NB, NR, auto/manual notch (+ width/position), AGC, twin-PBT.
+- **TX** — mic / COMP / VOX / monitor / TBW, **RIT**, **split/duplex** (VOX bound by
+  the same failsafe as PTT).
+- **Skeuomorphic TFT Radio view** from the IC-9700 manual (mode/filter box, lit
+  function-indicator strip, VFO + wavelength band labels); controls below the
+  waterfall; full-travel sliders; abbreviation tooltips.
+- Reference: full per-control map in `docs/CONTROL-MAP.md`, screen/menu blueprint
+  in `docs/UI-SPEC.md`.
 
 ## Planned
-- **More radios** — IC-705, IC-7610, IC-905, IC-7300, IC-9700 satellite, etc.
-  (each is just a profile; help/PRs welcome).
-- **Authentication + built-in HTTPS** for safe remote use (today there is no
-  login — restrict by interface / Tailscale ACLs).
+
+### Operating
+- **License-privilege band overlay** — a subtle, toggleable overlay on the scope /
+  waterfall that marks the US amateur sub-bands by **license class (Technician /
+  General / Amateur Extra)**, aligned to the frequency axis, with a **hover tooltip
+  listing the modes/privileges allowed** in each segment (and max power). Pick your
+  class to highlight your privileges and soft-flag tuning outside them.
+  *Notes:* on the IC-9700's VHF/UHF bands (2 m / 70 cm / 23 cm) all classes share
+  full privileges, so the class split mainly matters on HF (IC-7300MK2 + future HF
+  radios); on VHF/UHF the same overlay can instead show the voluntary band plan
+  (CW / weak-signal / SSB / FM simplex / repeater / satellite segments). Data =
+  FCC Part 97 band-privilege chart; keep it region-aware so non-US plans can drop in.
+- **Tone / DTCS** (CTCSS encode/decode) + an editable duplex offset (M3.5).
+- **Memory channels**, band-stacking registers, scan control.
+- **CW** keyer/memories, **RTTY** decode; **DV / D-STAR** (DR, call signs, GPS);
+  **satellite** dual-scope.
+- Read **true IF filter widths** (`1A 03`); scope **reference-level / sweep-speed /
+  VBW** controls.
+
+### UI
+- The **FUNCTION-screen panel** + the **SET-mode menu tree** (M4) — clean modern
+  lists generated from the control map, grouped by the radio's MENU categories.
+
+### Platform
+- **More radios** — IC-705, IC-7610, IC-905, IC-7300, etc. (each is just a profile).
+- **Authentication + built-in HTTPS** for safe remote use (today there is no login —
+  restrict by interface / Tailscale ACLs).
 - **Remote power-on** from networked standby where the radio supports it.
-- **Memory channels**, split/duplex + tone, RIT/XIT.
-- **Satellite / dual-watch** (IC-9700 dual scope).
-- Read **true IF filter widths** (`1A 03`) instead of per-mode defaults; scope
-  **reference-level / sweep-speed / VBW** controls.
 - Audio: selectable **codec / sample-rate**, recording, lower-latency options.
-- Band-stacking registers, scan control, per-band memory.
 
 ## Non-goals (for now)
-- Non-Icom rigs / Hamlib backends — possible later via the transport+profile
-  split, but not a near-term focus.
+- Non-Icom rigs / Hamlib backends — possible later via the transport+profile split,
+  but not a near-term focus.

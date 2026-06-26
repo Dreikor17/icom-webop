@@ -208,11 +208,16 @@
       ctx.clearRect(0, 0, w, h);
       // filter passband band (offset by mode)
       const bw = m.filterBw || 0, tuned = m.tuned || 0;   // explicit 0 (AF scope) -> no marker
+      // In CENTER mode the scope rides the tuned freq, so anchor the marker/filter to the
+      // scope CENTER (always exactly mid-screen) rather than the optimistic tuned value —
+      // that lags the sweep center while tuning and makes the marker jitter. Fixed mode
+      // keeps using the tuned freq so the marker moves through the fixed window.
+      const ref = (m.mode === 1) ? tuned : (m.center || tuned);
       if (bw > 0 && tuned) {
         let loF, hiF;
-        if (this.opMode === "USB" || this.opMode === "DV" || this.opMode === "RTTY-R") { loF = tuned; hiF = tuned + bw; }
-        else if (this.opMode === "LSB" || this.opMode === "RTTY") { loF = tuned - bw; hiF = tuned; }
-        else { loF = tuned - bw / 2; hiF = tuned + bw / 2; }
+        if (this.opMode === "USB" || this.opMode === "DV" || this.opMode === "RTTY-R") { loF = ref; hiF = ref + bw; }
+        else if (this.opMode === "LSB" || this.opMode === "RTTY") { loF = ref - bw; hiF = ref; }
+        else { loF = ref - bw / 2; hiF = ref + bw / 2; }
         const x0 = this.freqToX(loF), x1 = this.freqToX(hiF);
         ctx.fillStyle = "rgba(90,200,255,.16)";
         ctx.fillRect(Math.min(x0, x1), 0, Math.abs(x1 - x0), h);
@@ -222,7 +227,7 @@
       }
       // tuned channel marker
       if (tuned) {
-        const xc = this.freqToX(tuned);
+        const xc = this.freqToX(ref);
         ctx.strokeStyle = "#ff9a2e"; ctx.lineWidth = 1.4;
         ctx.beginPath(); ctx.moveTo(xc, 0); ctx.lineTo(xc, h); ctx.stroke();
         // little triangle at top

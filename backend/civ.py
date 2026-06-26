@@ -39,6 +39,13 @@ MODES = {
     0x08: "RTTY-R",
     0x17: "DV",
     0x22: "DD",
+    # App-internal codes for Yaesu-only modes (no CI-V equivalent). They exist so the
+    # server's mode name<->code round-trip works for the FT-991A's DATA/C4FM modes;
+    # no Icom radio ever sends or receives them.
+    0xF0: "DATA-U",
+    0xF1: "DATA-L",
+    0xF2: "DATA-FM",
+    0xF3: "C4FM",
 }
 MODE_CODES = {v: k for k, v in MODES.items()}
 

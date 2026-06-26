@@ -37,6 +37,7 @@ class RadioProfile:
     dual_watch: bool = False      # True for dual-receiver radios (IC-9700 MAIN/SUB)
     has_preamp: bool = True        # P.AMP available
     has_att: bool = True           # attenuator available
+    has_tuner: bool = False        # internal antenna tuner (in/out toggle) available
     make: str = "Icom"            # manufacturer, shown before the model in the picker
     protocol: str = "civ"         # "civ" (Icom CI-V) | "yaesu" (Yaesu CAT)
     has_scope: bool = True        # False = no spectrum/waterfall over the control link
@@ -66,6 +67,7 @@ class RadioProfile:
             "dual_watch": self.dual_watch,
             "has_preamp": self.has_preamp,
             "has_att": self.has_att,
+            "has_tuner": self.has_tuner,
         }
 
 
@@ -164,7 +166,8 @@ IC7300MK2 = RadioProfile(
 FT991A = RadioProfile(
     id="ft991a", name="FT-991A", civ_addr=0x00,
     make="Yaesu", protocol="yaesu", has_scope=False, default_baud=38400,
-    modes=["LSB", "USB", "CW", "CW-R", "AM", "FM", "RTTY", "RTTY-R"],
+    modes=["LSB", "USB", "CW", "CW-R", "AM", "FM", "RTTY", "RTTY-R",
+           "DATA-L", "DATA-U", "DATA-FM", "C4FM"],
     bands=[
         Band("160", 1_800_000, 2_000_000, 1_840_000),
         Band("80", 3_500_000, 4_000_000, 3_700_000),
@@ -182,8 +185,9 @@ FT991A = RadioProfile(
     ],
     filter_bw={
         "LSB": _SSB, "USB": _SSB, "CW": _CW, "CW-R": _CW,
-        "RTTY": _RTTY, "RTTY-R": _RTTY,
+        "RTTY": _RTTY, "RTTY-R": _RTTY, "DATA-L": _SSB, "DATA-U": _SSB,
         "AM": {1: 9000, 2: 6000, 3: 3000}, "FM": {1: 16000, 2: 9000, 3: 9000},
+        "DATA-FM": {1: 16000, 2: 9000, 3: 9000}, "C4FM": {1: 16000, 2: 16000, 3: 16000},
     },
     mod_dataoff=(0x00, 0x00), lan_mod_level=(0x00, 0x00),
     power_zero_bands=[],
@@ -191,8 +195,8 @@ FT991A = RadioProfile(
     steps=[(10, "10 Hz"), (100, "100 Hz"), (1000, "1 kHz"), (2500, "2.5 kHz"),
            (5000, "5 kHz"), (10000, "10 kHz"), (25000, "25 kHz")],
     default_step=100,
-    # FT-991A has IPO/AMP1 (PA0) and a 12 dB RF ATT (RA0); P.AMP toggles IPO<->AMP1.
-    has_preamp=True, has_att=True, has_network=False,
+    # FT-991A has IPO/AMP1 (PA0), a 12 dB RF ATT (RA0), and an internal auto ATU (AC).
+    has_preamp=True, has_att=True, has_tuner=True, has_network=False,
     connect_help=[
         {"title": "USB CAT (COM only)", "items": [
             "Install the Yaesu USB driver first. The radio shows TWO COM ports — pick the Enhanced (CAT) port above, not Standard.",

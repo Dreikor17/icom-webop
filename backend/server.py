@@ -330,6 +330,8 @@ def _handle_cmd(cmd: dict) -> None:
             radio.set_att(bool(cmd["on"]))
         elif action == "lock":
             radio.set_lock(bool(cmd["on"]))
+        elif action == "tuner":
+            radio.set_tuner(bool(cmd["on"]))
         elif action == "rx_func":
             radio.set_rx_func(str(cmd["name"]), bool(cmd["on"]))
         elif action == "agc":

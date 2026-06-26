@@ -77,8 +77,9 @@ def fresh_state(p) -> dict:
         "meter_val": 0,
         "meter_max": civ.METER_MAX,
         "meter_keys": civ.METER_KEYS,
-        "preamp": 0, "att": 0, "lock": False,
+        "preamp": 0, "att": 0, "lock": False, "tuner": 0,
         "has_preamp": p.has_preamp, "has_att": p.has_att,
+        "has_tuner": getattr(p, "has_tuner", False),
         "nb": 0, "nb_level": 0,
         "nr": 0, "nr_level": 0,
         "anotch": 0, "mnotch": 0, "mnotch_w": 0, "mnotch_pos": 128,
@@ -481,6 +482,11 @@ class Radio:
         self.state["lock"] = bool(on)
         self._write(self._b(0x16, 0x50, bytes([1 if on else 0])))
         self._emit_state()
+
+    def set_tuner(self, on: bool) -> None:
+        # Icom internal ATU isn't wired yet; has_tuner is False for the Icom profiles
+        # so the button is hidden. No-op keeps the shared action dispatch safe.
+        return
 
     def set_level(self, sub: int, value: int) -> None:
         key = LEVEL_KEYS.get(sub)

@@ -11,9 +11,10 @@ Reference and the Hamlib newcat/ft991 sources (digit counts + ranges matter — 
 wrong width makes the radio silently ignore the command, which is why the level
 sliders, power and DSP toggles did nothing before).
 
-HARD SAFETY RULE (same as the Icom path): never key the transmitter. We never
-send TX1; / MX1;, and never arm VOX. The TX; read is status display only.
-set_ptt() is a deliberate no-op.
+TX SAFETY (same as the Icom path): PTT is operator-driven from the UI (TX1;/TX0;)
+and bound by a stuck-TX failsafe — auto-unkey after PTT_TIMEOUT, on disconnect, and
+on any client drop while keyed. VOX is never armed over CAT (it can auto-key off mic
+audio with no explicit PTT). The TX; poll keeps the keyed state in sync.
 """
 from __future__ import annotations
 
@@ -22,13 +23,14 @@ import time
 from typing import Optional
 
 from . import civ, profiles
-from .radio import fresh_state, smeter_label
+from .radio import PTT_TIMEOUT, fresh_state, smeter_label
 
 # our mode-button name -> Yaesu MD command code (P2 char). Only the subset the
 # FT-991A profile exposes (all of which also exist in civ.MODE_CODES).
 YAESU_MD = {
     "LSB": "1", "USB": "2", "CW": "3", "FM": "4", "AM": "5",
     "RTTY": "6", "CW-R": "7", "RTTY-R": "9",
+    "DATA-L": "8", "DATA-FM": "A", "DATA-U": "C", "C4FM": "E",
 }
 # MD reply code -> readable name (includes codes we don't expose as buttons)
 MD_DECODE = {
@@ -65,6 +67,7 @@ class YaesuRadio:
         self._lock = threading.Lock()
         self._poll_thread: Optional[threading.Thread] = None
         self._poll_stop = threading.Event()
+        self._ptt_deadline: Optional[float] = None   # stuck-TX failsafe deadline (monotonic)
         self._rxbuf = ""
         self.on_state = None
         self.on_scope = None          # never used (no scope over CAT)
@@ -101,10 +104,17 @@ class YaesuRadio:
             self._poll_thread = None
         if self._tp:
             try:
+                if self.state.get("ptt"):
+                    self._tp.write(b"TX0;")          # never leave the radio keyed
+            except Exception:
+                pass
+            try:
                 self._tp.stop()
             except Exception:
                 pass
             self._tp = None
+        self._ptt_deadline = None
+        self.state["ptt"] = False
         if self.state.get("connected"):
             self.state["connected"] = False
             self.state["transport"] = None
@@ -166,6 +176,8 @@ class YaesuRadio:
             self.state["nr"] = 1 if m[3] == "1" else 0
         elif m.startswith("RL0") and len(m) >= 5 and m[3:5].isdigit():
             self.state["nr_level"] = _unscale(int(m[3:5]), 15)
+        elif m.startswith("BC0") and len(m) >= 4:
+            self.state["anotch"] = 1 if m[3] == "1" else 0       # DNF (auto notch)
         elif m.startswith("BP00") and len(m) >= 7:
             self.state["mnotch"] = 1 if m[4:7] == "001" else 0
         elif m.startswith("BP01") and len(m) >= 7 and m[4:7].isdigit():
@@ -183,6 +195,8 @@ class YaesuRadio:
             self.state["split"] = 1 if m[2] == "1" else 0
         elif m.startswith("RT") and len(m) >= 3 and m[2] in ("0", "1"):
             self.state["rit"] = 1 if m[2] == "1" else 0
+        elif m.startswith("AC") and len(m) >= 5 and m[4] in ("0", "1", "2"):
+            self.state["tuner"] = 1 if m[4] in ("1", "2") else 0  # AC00X: 0 off, 1 on, 2 tuning
         elif m.startswith("IF") and len(m) >= 14 and m[5:14].isdigit():
             self._set_freq_state(int(m[5:14]))                    # freq only; mode via MD0;
         elif m.startswith("TX") and len(m) >= 3:
@@ -213,21 +227,28 @@ class YaesuRadio:
     # settings read each panel refresh (also primed on connect) — keep the
     # fast-changing freq/mode/smeter/tx out of here; those poll every cycle.
     _SETTINGS = ("PC;", "AG0;", "RG0;", "SQ0;", "MG;", "GT0;",
-                 "NB0;", "NL0;", "NR0;", "RL0;", "BP00;",
-                 "PA0;", "RA0;", "LK;", "NA0;", "FT;", "RT;")
+                 "NB0;", "NL0;", "NR0;", "RL0;", "BC0;", "BP00;",
+                 "PA0;", "RA0;", "LK;", "NA0;", "FT;", "RT;", "AC;")
 
     def _poll(self) -> None:
         cyc = 0
         while not self._poll_stop.is_set():
+            # stuck-TX failsafe: never leave the radio keyed past the time-out.
+            if (self._ptt_deadline and time.monotonic() >= self._ptt_deadline
+                    and self.state.get("ptt")):
+                self.set_ptt(False)
             for cmd in ("FA;", "MD0;", "SM0;", "TX;"):
                 if self._poll_stop.is_set():
                     break
                 self._send(cmd)
                 time.sleep(0.03)
             if cyc % 6 == 0:                         # refresh the full panel ~every 2 s
+                c4fm = self.state.get("mode_name") == "C4FM"
                 for cmd in self._SETTINGS:
                     if self._poll_stop.is_set():
                         break
+                    if cmd == "NA0;" and c4fm:       # FT-991A hangs on NA0; while in C4FM
+                        continue
                     self._send(cmd)
                     time.sleep(0.03)
             cyc += 1
@@ -265,7 +286,8 @@ class YaesuRadio:
         narrow = 0 if int(filt) <= 1 else 1
         self.state["filter"] = int(filt)
         self.state["filter_name"] = f"FIL{int(filt)}"
-        self._send(f"NA0{narrow};")
+        if self.state.get("mode_name") != "C4FM":     # FT-991A hangs on NA0; in C4FM
+            self._send(f"NA0{narrow};")
         self._emit_state()
 
     def set_band(self, band: str) -> None:
@@ -327,11 +349,12 @@ class YaesuRadio:
             cmd = f"NB0{v};"
         elif name == "nr":
             cmd = f"NR0{v};"
+        elif name == "anotch":
+            cmd = f"BC0{v};"                          # DNF (digital/auto notch) on/off
         elif name == "mnotch":
-            cmd = f"BP00{v:03d};"                     # BP00000; / BP00001;
+            cmd = f"BP00{v:03d};"                     # IF (manual) notch BP00000; / BP00001;
         elif name == "comp":
             cmd = f"PR0{2 if on else 1};"             # speech processor on/off
-        # "anotch": FT-991A has no separate auto-notch over CAT (manual notch only)
         # "vox"/"mon": vox arms TX -> never toggled here (safety)
         if cmd is None:
             return
@@ -377,9 +400,23 @@ class YaesuRadio:
         self._send(f"RC;RU{hz:04d};" if hz >= 0 else f"RC;RD{-hz:04d};")
         self._emit_state()
 
+    def set_tuner(self, on: bool) -> None:
+        # Switch the internal ATU in (AC001) or out of line (AC000). This does NOT
+        # transmit. Starting an actual tuning cycle is AC002;, which keys a carrier —
+        # that is a TX action and is deliberately not issued here.
+        self.state["tuner"] = 1 if on else 0
+        self._send("AC001;" if on else "AC000;")
+        self._emit_state()
+
     def set_ptt(self, tx: bool) -> None:
-        # HARD RULE: never key TX over CAT. Status comes from the TX; poll only.
-        return
+        # Operator-driven from the UI (same as the Icom set_ptt). TX1; keys, TX0;
+        # unkeys, bound by the stuck-TX failsafe (auto-unkey in _poll, on disconnect,
+        # and on client drop). The TX; poll keeps state["ptt"] in sync with the radio.
+        tx = bool(tx)
+        self.state["ptt"] = tx
+        self._ptt_deadline = (time.monotonic() + PTT_TIMEOUT) if tx else None
+        self._send("TX1;" if tx else "TX0;")
+        self._emit_state()
 
     def write_audio(self, pcm: bytes) -> None:
         return                                        # no USB-audio path here

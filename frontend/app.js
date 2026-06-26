@@ -109,6 +109,7 @@
     $("preampBtn").classList.toggle("on", (s.preamp || 0) > 0);
     $("attBtn").classList.toggle("on", (s.att || 0) > 0);
     $("lockBtn").classList.toggle("on", !!s.lock);
+    { const tb = $("tunerBtn"); if (tb) tb.classList.toggle("on", (s.tuner || 0) > 0); }
 
     // connection
     const on = !!s.connected;
@@ -266,6 +267,7 @@
       const fn = b.dataset.fn;
       const on = fn === "att" ? !((state.att || 0) > 0)
                : fn === "preamp" ? !((state.preamp || 0) > 0)
+               : fn === "tuner" ? !((state.tuner || 0) > 0)
                : !state.lock;
       send({ action: fn, on });
     }
@@ -564,6 +566,7 @@
     const sub = $("rowSub"); if (sub) sub.style.display = p.dual_watch ? "" : "none";
     const pa = $("preampBtn"); if (pa) pa.style.display = p.has_preamp ? "" : "none";
     const at = $("attBtn"); if (at) at.style.display = p.has_att ? "" : "none";
+    const tu = $("tunerBtn"); if (tu) tu.style.display = p.has_tuner ? "" : "none";
     // no-scope radios (Yaesu CAT): hide the scope-only controls, show the notice
     const noScope = p.has_scope === false;
     const ns = $("noScope"); if (ns) ns.hidden = !noScope;

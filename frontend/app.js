@@ -78,8 +78,8 @@
     state = s;
     // dual-watch band readout (MAIN/SUB); single-rx radios show MAIN only
     $("rowSub").style.display = s.dual_watch ? "" : "none";
-    fillBand("main", s.main);
-    fillBand("sub", s.sub);
+    fillBand("main", s.main, s.active_band !== "sub");
+    fillBand("sub", s.sub, s.active_band === "sub");
     $("rowMain").classList.toggle("active", s.active_band !== "sub");
     $("rowSub").classList.toggle("active", s.active_band === "sub");
     setInd("mainInd", s, s.active_band !== "sub");
@@ -158,9 +158,26 @@
   }
 
   const BAND_LABEL = { "144": "2 m", "430": "70 cm", "1200": "23 cm" };
-  function fillBand(name, b) {
+  function renderFreq(el, hz, interactive) {
+    if (!el) return;
+    if (el._hz === hz && el._int === interactive) return;   // skip when unchanged (avoids hover flicker)
+    el._hz = hz; el._int = interactive;
+    el.classList.toggle("tunable", !!interactive);
+    const s = formatFreq(hz), ndig = (s.match(/\d/g) || []).length;
+    let html = "", di = 0;
+    for (const ch of s) {
+      if (ch >= "0" && ch <= "9") {
+        html += '<span class="fd" data-place="' + Math.pow(10, ndig - 1 - di) + '">' + ch + "</span>";
+        di++;
+      } else {
+        html += '<span class="fdsep">' + ch + "</span>";
+      }
+    }
+    el.innerHTML = html;
+  }
+  function fillBand(name, b, active) {
     if (!b) return;
-    $(name + "Freq").textContent = formatFreq(b.freq);
+    renderFreq($(name + "Freq"), b.freq, !!active);
     $(name + "Mode").textContent = b.mode_name || "";
     $(name + "Fil").textContent = b.filter_name || "";
     const bn = bandOf(b.freq);
@@ -364,38 +381,32 @@
     send({ action: "tune", delta: (e.deltaY < 0 ? 1 : -1) * step });
   }, { passive: false });
 
-  // ---- main dial drag ----
-  const dial = $("dial"), knob = $("dialKnob");
-  let dragging = false, lastAngle = 0, accum = 0, rot = 0;
-  function angleAt(e, rect) {
-    const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
-    return Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI;
-  }
-  dial.addEventListener("pointerdown", (e) => {
-    dragging = true; dial.setPointerCapture(e.pointerId);
-    lastAngle = angleAt(e, dial.getBoundingClientRect());
-  });
-  dial.addEventListener("pointermove", (e) => {
-    if (!dragging) return;
-    const a = angleAt(e, dial.getBoundingClientRect());
-    let d = a - lastAngle;
-    if (d > 180) d -= 360; if (d < -180) d += 360;
-    lastAngle = a; accum += d; rot += d;
-    knob.style.transform = `rotate(${rot}deg)`;
-    const PER = 6; // degrees per step
-    while (Math.abs(accum) >= PER) {
-      send({ action: "tune", delta: (accum > 0 ? 1 : -1) * step });
-      accum -= (accum > 0 ? 1 : -1) * PER;
+  // ---- per-digit VFO tuning (click the readout digits up/down, or scroll them) ----
+  const bandsEl = $("bands");
+  function digitDelta(d, up) {
+    const place = +d.dataset.place || 0;
+    if (!place) return;
+    const row = d.closest(".bandrow");
+    if (row && !row.classList.contains("active")) {   // clicking the non-operating band selects it first
+      send({ action: "select_band", band: row.dataset.band });
+      return;
     }
-  });
-  const endDrag = () => { dragging = false; };
-  dial.addEventListener("pointerup", endDrag);
-  dial.addEventListener("pointercancel", endDrag);
-  // wheel on dial too
-  dial.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    send({ action: "tune", delta: (e.deltaY < 0 ? 1 : -1) * step });
-  }, { passive: false });
+    const hz = Math.max(0, (state.freq || 0) + (up ? place : -place));
+    state.freq = hz;                                  // optimistic so rapid clicks/scrolls accumulate
+    send({ action: "set_freq", hz });
+  }
+  if (bandsEl) {
+    bandsEl.addEventListener("click", (e) => {
+      const d = e.target.closest(".fd"); if (!d) return;
+      e.stopPropagation();                            // don't also fire the row's band-select
+      digitDelta(d, e.offsetY < d.clientHeight / 2);
+    });
+    bandsEl.addEventListener("wheel", (e) => {
+      const d = e.target.closest(".fd"); if (!d) return;
+      e.preventDefault();
+      digitDelta(d, e.deltaY < 0);
+    }, { passive: false });
+  }
 
   // ---- radio profiles (bands/modes/steps render from the selected radio) ----
   function selectedRadio() { return radios.find(p => p.id === $("radioSel").value) || radios[0] || null; }

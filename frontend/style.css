@@ -323,7 +323,19 @@ select,input,.baud{
   width:15px;height:15px;border-radius:50%;background:#eaf6ff;border:2px solid var(--accent);box-shadow:0 1px 3px rgba(0,0,0,.5);
 }
 
-/* ===== wide "operating console": waterfall right, controls left, no page scroll ===== */
+/* per-digit VFO tuning: hover a digit for up/down arrows; click top/bottom or scroll it */
+.band-freq .fd{position:relative;display:inline-block}
+.band-freq .fdsep{opacity:.65}
+.band-freq.tunable .fd{cursor:ns-resize}
+.band-freq.tunable .fd:hover{background:rgba(90,200,255,.18);border-radius:4px;
+  box-shadow:0 0 0 1px rgba(120,220,255,.45) inset}
+.band-freq.tunable .fd:hover::before,
+.band-freq.tunable .fd:hover::after{position:absolute;left:0;right:0;text-align:center;
+  font-size:10px;line-height:1;color:var(--accent);opacity:.95;pointer-events:none}
+.band-freq.tunable .fd:hover::before{content:"▲";top:-9px}
+.band-freq.tunable .fd:hover::after{content:"▼";bottom:-9px}
+
+/* ===== wide "operating console": narrow controls left | VFO + meter + waterfall right ===== */
 @media (min-width:900px){
   html{height:100%}
   body{height:100vh;display:flex;flex-direction:column;overflow:hidden;padding:8px;gap:0}
@@ -331,43 +343,24 @@ select,input,.baud{
   .radio{
     flex:1 1 auto;min-height:0;max-width:none;margin:0;
     display:grid;gap:12px;padding:12px;
-    grid-template-columns:minmax(360px,37%) 1fr;
-    grid-template-rows:auto 1fr;
-    grid-template-areas:"display scope" "controls scope";
+    grid-template-columns:236px 1fr;             /* one control section wide | the rest */
   }
-  .display{grid-area:display;margin:0}
-  .scopepane{grid-area:scope;display:flex;flex-direction:column;min-height:0;min-width:0}
+  /* LEFT: single compact column of controls (scopepane comes first in the DOM, so place explicitly) */
+  .controls{grid-column:1;grid-row:1;min-height:0;overflow-y:auto;
+    display:flex;flex-direction:column;gap:7px;columns:auto}
+  .controls .grp{margin:0;padding:6px 8px}
+  .controls .grp-title{margin-bottom:4px;font-size:9px}
+  .controls .row{gap:5px}
+  .controls .key{padding:6px 5px;font-size:12px;min-width:30px}
+  .controls .sl{gap:6px}
+  .controls .sl input[type=range]{margin:1px 0}
+  .controls .step-row{margin-top:4px}
+  .ptt-top{padding:11px;font-size:14px}          /* prominent PTT at the top of the strip */
+  /* RIGHT: readout + meter on top, the waterfall fills the rest */
+  .scopepane{grid-column:2;grid-row:1;display:flex;flex-direction:column;min-height:0;min-width:0;gap:8px}
+  .scopepane .bands,.scopepane .meter{margin-bottom:0}
   .scopepane .scope{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
   #spectrum{flex:0 0 auto;height:150px;width:100%}
   #waterfall{flex:1 1 auto;min-height:0;height:auto;width:100%}
-  .scope-ctl{flex:0 0 auto;margin-top:8px}
-  /* controls fill the lower-left and pack into columns; scroll only if a small screen forces it */
-  .controls{
-    grid-area:controls;min-height:0;overflow-y:auto;
-    columns:auto;display:grid;align-content:start;gap:9px;
-    grid-template-columns:repeat(auto-fill,minmax(165px,1fr));
-  }
-  .controls .grp{margin:0}
-  /* compact so it all fits without scrolling on a typical desktop */
-  .grp{padding:7px 8px}
-  .grp-title{margin-bottom:5px}
-  .dial{width:112px;height:112px}
-  .dial-knob{width:90px;height:90px}
-  .sliders{gap:5px}
-  .audio-note{font-size:10px}
-}
-
-/* console: compact the left controls so they fit without an internal scroll */
-@media (min-width:900px){
-  .controls .grp{padding:6px 7px}
-  .controls .grp-title{margin-bottom:4px;font-size:9px}
-  .controls .row{gap:5px}
-  .controls .key{padding:6px 5px;font-size:12px;min-width:34px}
-  .controls .sl{gap:5px}
-  .controls .sl input[type=range]{margin:1px 0}
-  .controls .step-row{margin-top:4px}
-  .dial{width:94px;height:94px}
-  .dial-knob{width:76px;height:76px}
-  .ptt-row{margin-top:6px}
-  .audio-note{display:none}        /* reclaim space on the console */
+  .scope-ctl{flex:0 0 auto;margin-top:0}
 }

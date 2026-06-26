@@ -8,6 +8,15 @@ just adding a profile.
 
 ## Done
 
+### v0.2.2 — multi-manufacturer + overlay tools
+- **Yaesu FT-991A** — first non-Icom radio (Yaesu CAT over USB, COM-only); profiles
+  carry make/protocol/capabilities. Serial ports show Enhanced/Standard + auto-pick.
+- **Band-plan overlay** (ARRL VHF/UHF + FCC license-class HF) with color key + tooltips.
+- **CW decoder/coder** overlay tool (adaptive squelch/tone/WPM; Morse sidetone, no TX);
+  **audio (AF) spectrum scope** from RX audio for radios with no CAT scope.
+- **USB audio** RX-in/Mic-out pickers for COM radios; **per-radio connection memory**
+  (+ "?" help) and **live panel re-sync** so the UI mirrors the radio's real state.
+
 ### v0.2.0 — unified multi-radio base
 - **Multi-radio app** with a model selector (IC-9700, IC-7300MK2); bands/modes/
   steps render from the selected profile.

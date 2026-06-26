@@ -1,3 +1,3 @@
-"""Radio WebOp backend package — multi-radio Icom CI-V control panel."""
+"""Radio WebOp backend package — multi-radio CI-V / CAT control panel."""
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"

@@ -3,6 +3,55 @@
 All notable changes to **Radio WebOp** are documented here. This project adheres
 to [Semantic Versioning](https://semver.org).
 
+## [0.2.2] — 2026-06-26
+
+Goes **multi-manufacturer** (first non-Icom radio), adds overlay tools over the
+waterfall, and makes the radio's real state — and your connection choices — stick.
+
+### Added
+- **Yaesu FT-991A** — the first non-Icom radio. Yaesu **CAT** over USB (COM-only,
+  8N2); frequency / mode / S-meter readout and control. Verified on real hardware.
+  A profile now carries its make, protocol and capabilities, so adding a brand is
+  still just a profile.
+- **Band-plan overlay** on the scope (toggle) — the **ARRL voluntary band plan** on
+  VHF/UHF and **FCC license-class sub-bands** on HF, aligned to the frequency axis,
+  with a color-key legend and a hover tooltip per segment. Data is compiled and
+  verified against the ARRL plan + FCC Part 97.
+- **CW decoder / coder** — the first overlay tool: a draggable panel that decodes
+  received CW from the RX audio (adaptive tone, **squelch**, WPM) and encodes typed
+  text to a soft-keyed Morse sidetone. It never transmits.
+- **Audio (AF) spectrum scope** — for radios with no CAT band scope (FT-991A), an
+  FFT of the RX audio drives the spectrum + waterfall as a mini-panadapter, mapped
+  to RF by the mode's sideband.
+- **USB audio for COM radios** — RX-in / Mic-out device pickers for the radio's USB
+  sound device (the control link carries no audio over a serial/CAT connection).
+- **Per-radio connection "?" help** — a popover listing the radio-side settings to
+  set before connecting (CI-V baud/address, the FT-991A's CAT rate + Enhanced port).
+
+### Changed
+- **Connection memory is now per-radio** — each radio remembers its last transport
+  (Simulator / LAN / COM port), that transport's settings, and for COM the RX-in /
+  Mic-out devices; startup reopens the last-used radio.
+- **Settings now track the radio live** — the Icom poll re-reads the whole panel
+  (preamp/att/lock, RX-DSP, levels, RIT, split/duplex) periodically, so front-panel
+  changes show in the app, not just the values read at connect.
+- The scope opens at the **widest span (±250 kHz)**; the settings column is a touch
+  wider; **RX audio is smoother** (continuous resampling + a firmer jitter buffer).
+- Serial ports now show **Enhanced / Standard** (the FT-991A's CAT is on Enhanced),
+  and a COM-only radio auto-selects its Enhanced port.
+- Static assets are versioned so a reload never serves stale JS/CSS.
+
+### Fixed
+- **Mobile:** scrolling no longer wipes the waterfall (the address-bar show/hide
+  fired a resize that rebuilt it).
+- The spectrum/waterfall **split** no longer gets stuck "dragging" after release —
+  and dragging it no longer secretly re-tuned the radio.
+- The **CW window** no longer jumps when you grab it to move it.
+- COM / Simulator now **hide the LAN IP/user/password** fields; the FT-991A (no
+  network) hides the LAN option entirely.
+- Changing the selected radio clears the previous waterfall and zeros the VFOs until
+  you reconnect; **Enter** in a connection field starts Connect.
+
 ## [0.2.1] — 2026-06-25
 
 Start of the full **IC-9700** control build-out (see [ROADMAP.md](ROADMAP.md) and
@@ -96,6 +145,7 @@ live spectrum scope + waterfall.
 - Mic capture (TX) needs a secure context (HTTPS or localhost), so it won't run
   over plain-HTTP remote access; RX audio playback works over HTTP.
 
+[0.2.2]: https://github.com/Dreikor17/radio-webop/releases/tag/v0.2.2
 [0.2.1]: https://github.com/Dreikor17/radio-webop/releases/tag/v0.2.1
 [0.2.0]: https://github.com/Dreikor17/radio-webop/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Dreikor17/radio-webop/releases/tag/v0.1.0

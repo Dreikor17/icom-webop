@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import struct
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional, Set
 
@@ -287,8 +288,12 @@ def _handle_cmd(cmd: dict) -> None:
         pass
 
 
-async def _startup():
+@asynccontextmanager
+async def _lifespan(app):
+    # capture the serving loop so radio threads can schedule WS sends onto it.
+    # (lifespan, not on_startup= — Starlette removed the on_startup/on_shutdown kwargs.)
     hub.loop = asyncio.get_running_loop()
+    yield
 
 
 routes = [
@@ -301,4 +306,4 @@ routes = [
     Mount("/static", StaticFiles(directory=str(FRONTEND)), name="static"),
 ]
 
-app = Starlette(debug=False, routes=routes, on_startup=[_startup])
+app = Starlette(debug=False, routes=routes, lifespan=_lifespan)

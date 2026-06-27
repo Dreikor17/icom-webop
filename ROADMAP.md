@@ -52,12 +52,12 @@ just adding a profile.
 - **Band-plan overlay enhancements** (the overlay itself shipped): let the user pick
   their license class to highlight just their privileges and soft-flag tuning outside
   them; make the data region-aware so non-US band plans can drop in.
-- **CW encoder / decoder** — *shipped* as the first overlay tool (the "CW" button pops
-  a draggable panel over the waterfall): a classic DSP decoder on the RX audio (adaptive
-  tone/threshold/WPM) + a type-to-Morse soft-keyed sidetone (no transmit). *Follow-ups:*
-  optionally integrate the deep-learning ONNX decoder from e04/deep-cw-decoder (note: it
-  is **AGPL-3.0**, so it would relicense the app — a deliberate opt-in); and actual CW
-  keying to TX via the CI-V keyer, bound by the same PTT failsafe.
+- **CW encoder / decoder** — *shipped*. The "CW" button pops a draggable panel over the
+  waterfall with a **neural decoder** (the DeepCW ONNX model from e04/deepcw-engine, run
+  in-browser via onnxruntime-web) plus a type-to-Morse soft-keyed sidetone (no transmit).
+  This is what relicensed the app to **AGPL-3.0** (deliberate opt-in for the accuracy).
+  *Follow-ups:* tune the streaming finalize so the last char of a discrete burst never
+  slips; optional WebGPU backend; actual CW keying to TX via the keyer (PTT-failsafe-bound).
 - **More overlay tools** over the waterfall (the framework is in place) — e.g. RTTY/FT8
   decode, a tuning/zero-beat aid, memory keyer.
 - **Tone / DTCS** (CTCSS encode/decode) + an editable duplex offset (M3.5).

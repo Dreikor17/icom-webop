@@ -88,3 +88,12 @@ implementation informed by the open-source
 [kappanhang](https://github.com/nonoo/kappanhang). There is **no authentication**
 yet — restrict access by interface and/or a firewall / VPN. Icom's CI-V reference
 PDFs are not redistributed (see `docs/README.md`).
+
+## License
+
+**AGPL-3.0-only** — see [LICENSE](LICENSE) and [NOTICE](NOTICE). The project is AGPL
+because its **neural CW decoder** bundles the **DeepCW** model from
+[e04/deepcw-engine](https://github.com/e04/deepcw-engine), which is AGPL-3.0. If you
+host a modified copy, AGPL section 13 requires offering users the corresponding source.
+The in-browser ONNX runtime ([onnxruntime-web](https://github.com/microsoft/onnxruntime))
+is MIT.

@@ -34,3 +34,7 @@ Thumbs.db
 docs/_manual_text.txt
 docs/_manual*.txt
 docs/_render/
+
+# CW deep-decoder dev scratch (test wavs, downloaded AGPL examples)
+_cwdev/
+frontend/*.wav

@@ -194,9 +194,15 @@ select,input,.baud{
 .cw-send{flex:1 1 auto;min-width:0}
 .key.sm{flex:0 0 auto;min-width:0;padding:5px 9px;font-size:12px}
 .cw-hint{font-size:10px;color:var(--txt-dim)}
+.cw-row .cw-hint{flex:1 1 auto}
 .cw-hint.cw-on{color:var(--green)}
 .cw-num{font-size:10px;color:var(--txt-dim);min-width:64px;text-align:right;white-space:nowrap}
 .cw-num b{color:var(--txt);font-family:var(--mono)}
+.cw-status{color:var(--txt-dim);font-family:var(--mono);font-size:10px}
+.cw-row input.cw-tone{flex:0 0 64px;min-width:64px}
+.cw-credit{font-size:9px;color:var(--txt-dim);opacity:.7;margin-top:3px;text-align:center}
+.cw-credit a{color:var(--txt-dim);text-decoration:none}
+.cw-credit a:hover{text-decoration:underline}
 
 /* ---- controls column ---- */
 /* top deck: display (scope/waterfall) on the left, MAIN DIAL + AUDIO at the top-right */

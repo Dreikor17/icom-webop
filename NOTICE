@@ -1,0 +1,26 @@
+radio-webop
+Copyright (C) 2026 Dreikor17
+
+This program is free software: you can redistribute it and/or modify it under the
+terms of the GNU Affero General Public License, version 3 only (AGPL-3.0-only), as
+published by the Free Software Foundation. See the LICENSE file for the full text.
+
+The project is AGPL-3.0 because its neural CW decoder bundles the DeepCW model, which
+is AGPL-3.0. If you run a modified version of this software and let users interact
+with it over a network, AGPL section 13 requires you to offer them the corresponding
+source. The app links to its source repository in the CW tool's footer.
+
+Bundled / third-party components
+--------------------------------
+- DeepCW model  -  frontend/models/deepcw/model.onnx + model.onnx.json
+    The neural Morse decoder weights, from github.com/e04/deepcw-engine.
+    Copyright (C) e04.  Licensed AGPL-3.0-only.
+    frontend/cw-worker.js's spectrogram + greedy-CTC steps are adapted from that
+    repository's AGPL-3.0 examples (examples/nodejs/decode_morse.mjs).
+
+- ONNX Runtime Web  -  frontend/vendor/ort/
+    In-browser ONNX inference runtime (onnxruntime-web 1.20.1).
+    Copyright (C) Microsoft Corporation.  Licensed MIT.
+
+The Icom CI-V / RS-BA1 LAN and Yaesu CAT implementations are clean-room work informed
+by public open-source projects (wfview, kappanhang, Hamlib); no code was copied.

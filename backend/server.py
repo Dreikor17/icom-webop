@@ -15,10 +15,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import mimetypes
 import struct
 import threading
 import time
 import urllib.request
+
+# ES-module glue files (e.g. onnxruntime-web's .mjs wasm loader) must be served with a
+# JavaScript MIME type or the browser refuses to dynamically import them. Python maps
+# .mjs -> text/plain on some platforms (Windows), so register it explicitly.
+mimetypes.add_type("text/javascript", ".mjs")
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional, Set

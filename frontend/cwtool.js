@@ -1,15 +1,22 @@
 /* CW decoder / coder — an overlay tool that pops up over the waterfall.
-   Decoder: taps the pre-volume RX bus (RadioAudio.bus()), tracks the CW tone
-   envelope, adapts the threshold + dot length, and turns the on/off timing into
-   text. Coder: types -> Morse -> a soft-keyed sidetone (NO transmit; it never
-   keys the radio — it just makes sound you can also feed back to the decoder).
-
-   A classic (DSP) decoder, not the deep-learning one — see the note in the app
-   about the AGPL ONNX model from e04/deep-cw-decoder. */
+ *
+ * Decoder: a NEURAL decoder (DeepCW). It taps the pre-volume RX bus
+ * (RadioAudio.bus()), resamples to 3200 Hz, and re-runs the ONNX model in
+ * cw-worker.js over a growing window, committing text at pauses. Far more
+ * robust than a timing decoder under QSB/QRM/weak signals.
+ *
+ * Coder: types -> Morse -> a soft-keyed sidetone (NO transmit; it never keys the
+ * radio). The sidetone feeds the same rxBus, so playing it self-tests the decoder.
+ *
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * The decode path links the AGPL-3.0 DeepCW model (github.com/e04/deepcw-engine),
+ * so the CW feature is AGPL-3.0. See cw-worker.js. onnxruntime-web is MIT.
+ */
 (function () {
   "use strict";
   const $ = (id) => document.getElementById(id);
   const RA = () => window.RadioAudio || null;
+  const CW_WORKER_V = "1";                       // bump when cw-worker.js changes (cache-bust)
 
   const MORSE = {
     A: ".-", B: "-...", C: "-.-.", D: "-..", E: ".", F: "..-.", G: "--.", H: "....",
@@ -22,8 +29,6 @@
     "-": "-....-", ":": "---...", "(": "-.--.", ")": "-.--.-", '"': ".-..-.", "@": ".--.-.",
     "'": ".----.",
   };
-  const TEXT_OF = {};
-  for (const k in MORSE) TEXT_OF[MORSE[k]] = k;
 
   const panel = $("cwTool"), btn = $("cwToolBtn"), head = $("cwHead");
   if (!panel || !btn) return;
@@ -45,8 +50,6 @@
     const prect = () => (panel.offsetParent || panel.parentElement).getBoundingClientRect();
     head.addEventListener("pointerdown", (e) => {
       if (e.target.closest(".tp-close")) return;
-      // style.left/top are relative to the offset parent, NOT the viewport — convert,
-      // so grabbing the header doesn't jump the panel by the parent's offset.
       const p = prect(), r = panel.getBoundingClientRect();
       baseL = r.left - p.left; baseT = r.top - p.top;
       panel.style.left = baseL + "px"; panel.style.top = baseT + "px";
@@ -58,8 +61,7 @@
     head.addEventListener("pointermove", (e) => {
       if (!down || !(e.buttons & 1)) return;
       const p = prect();
-      let x = baseL + (e.clientX - sx);          // base + total drag delta (no drift)
-      let y = baseT + (e.clientY - sy);
+      let x = baseL + (e.clientX - sx), y = baseT + (e.clientY - sy);
       x = Math.max(0, Math.min(p.width - panel.offsetWidth, x));
       y = Math.max(0, Math.min(p.height - 30, y));
       panel.style.left = x + "px"; panel.style.top = y + "px";
@@ -70,137 +72,130 @@
     head.addEventListener("lostpointercapture", end);
   })();
 
-  // ---- decoder ----
-  let analyser = null, timer = 0, raf = 0;
-  let outText = "", curMorse = "", dotMs = 60;
-  let keyOn = false, edgeT = 0, wordPending = false, lastSnr = 0, bandLo = 1, bandHi = 2;
-  const out = $("cwOut"), hint = $("cwHint");
+  // ---- neural decoder ----
+  const SR = 3200;                               // model sample rate
+  const INFER_MS = 1200;                         // re-decode cadence
+  const MIN_SEC = 5;                             // pad short windows to the model's min length
+  const MAX_SEC = 11;                            // finalize + reset before the model's 20 s cap
+  const PAUSE_STABLE = 3;                        // identical decodes in a row -> a settled pause -> commit
+  const SILENCE = 1.5e-3;                        // |sample| below this for the whole window = no RX
 
-  function startDecoder() {
+  let worker = null, workerReady = false;
+  let capNode = null, ticker = 0, workletReady = false;  // realtime capture worklet
+  let buf = new Float32Array(MAX_SEC * SR), winLen = 0;   // current window @ 3200 Hz
+  let peak = 0;                                  // |sample| peak seen this window (RX-present gate)
+  let committed = "", live = "", prevLive = "", stable = 0;
+  let inflight = false, lastInferLen = -1, reqId = 0;
+  const out = $("cwOut"), hint = $("cwHint"), statusEl = $("cwStatus");
+
+  function setStatus(s) { if (statusEl) statusEl.textContent = s; }
+
+  function ensureWorker() {
+    if (worker) return;
+    setStatus("loading model…");
+    worker = new Worker("/static/cw-worker.js?v=" + CW_WORKER_V);
+    worker.onmessage = (e) => {
+      const m = e.data;
+      if (m.type === "ready") { workerReady = true; setStatus("ready"); render(); }
+      else if (m.type === "error") { setStatus("model failed"); }
+      else if (m.type === "result") onResult(m);
+    };
+    worker.onerror = () => setStatus("model error");
+  }
+
+  async function startDecoder() {
+    ensureWorker();
     const ra = RA(); if (!ra) return;
     ra.ensure();
     const ctx = ra.ctx(), bus = ra.bus();
     if (!ctx || !bus) return;
-    stopAnalyser();
-    analyser = ctx.createAnalyser();
-    analyser.fftSize = 1024;                 // ~21 ms window: responsive enough to ~25 wpm
-    analyser.smoothingTimeConstant = 0;
-    bus.connect(analyser);
-    edgeT = performance.now(); keyOn = false; wordPending = false; lastSnr = 0; dotMs = 60; curMorse = "";
-    const bins = analyser.frequencyBinCount, buf = new Uint8Array(bins), ny = ctx.sampleRate / 2;
-    bandLo = Math.max(1, Math.round(200 / ny * bins));     // CW audio band for the noise-floor estimate
-    bandHi = Math.min(bins - 1, Math.round(1500 / ny * bins));
-    timer = setInterval(() => sample(ctx, buf), 5);   // ~200 Hz envelope sampling
-    drawLoop();
+    stopCapture();
+    winLen = 0; peak = 0; committed = ""; live = ""; prevLive = ""; stable = 0;
+    inflight = false; lastInferLen = -1;
+    render();
+    try {
+      if (!workletReady) { await ctx.audioWorklet.addModule("/static/cw-capture-worklet.js?v=" + CW_WORKER_V); workletReady = true; }
+      if (!open) return;                                  // panel was closed while the module loaded
+      capNode = new AudioWorkletNode(ctx, "cw-capture", { processorOptions: { targetSR: SR } });
+      capNode.port.onmessage = (e) => appendSamples(e.data);
+      bus.connect(capNode); capNode.connect(ctx.destination);   // worklet emits no output -> silent
+    } catch (err) {
+      setStatus("audio capture unavailable");
+      return;
+    }
+    if (!ticker) ticker = setInterval(tick, INFER_MS);
   }
-  function stopDecoder() { stopAnalyser(); }
-  function stopAnalyser() {
-    if (timer) { clearInterval(timer); timer = 0; }
-    if (raf) { cancelAnimationFrame(raf); raf = 0; }
-    if (analyser) { try { analyser.disconnect(); } catch (_) {} analyser = null; }
+  function stopDecoder() { stopCapture(); if (ticker) { clearInterval(ticker); ticker = 0; } }
+  function stopCapture() {
+    if (capNode) { try { capNode.disconnect(); capNode.port.onmessage = null; } catch (_) {} capNode = null; }
   }
 
-  function toneBin(ctx) {
-    const tone = +$("cwToneSet").value || 600;
-    return Math.round(tone / (ctx.sampleRate / 2) * analyser.frequencyBinCount);
-  }
-  function sample(ctx, buf) {
-    analyser.getByteFrequencyData(buf);
-    const b = toneBin(ctx);
-    let toneMag = 0;
-    for (let i = Math.max(0, b - 1); i <= Math.min(buf.length - 1, b + 1); i++) toneMag = Math.max(toneMag, buf[i]);
-    // Noise floor = median of the CW audio band. SNR = how far the tone rises ABOVE the
-    // floor, so broadband noise (which lifts every bin together) gives ~0 SNR and won't
-    // key — only a concentrated tone does. The squelch is the SNR a real signal must clear.
-    const band = [];
-    for (let i = bandLo; i <= bandHi; i++) band.push(buf[i]);
-    band.sort((x, y) => x - y);
-    const floor = band[band.length >> 1] || 0;
-    const snr = toneMag - floor;
-    lastSnr += 0.4 * (snr - lastSnr);                        // smoothed copy for the readout only
-    const sq = +$("cwSquelch").value || 32;
-    const now = performance.now();
-    // Key on the RAW snr (the ~21 ms FFT window already smooths it) so element timing
-    // stays crisp; the squelch + glitch filter reject noise, not extra envelope lag.
-    const wantOn = keyOn ? snr > sq * 0.55 : snr > sq;       // hysteresis
-    if (wantOn && !keyOn) onEdge(true, now);
-    else if (!wantOn && keyOn) onEdge(false, now);
-    else flushIdle(now);
-  }
-  function onEdge(down, now) {
-    const dur = now - edgeT; edgeT = now; keyOn = down;
-    if (down) {                              // key just went DOWN -> the gap that ended was OFF
-      classifyGap(dur);
-    } else {                                 // key just went UP -> the mark that ended was ON
-      if (dur < Math.max(20, dotMs * 0.4)) return;   // sub-element blip (noise / FFT smear) -> ignore
-      if (dur < dotMs * 2) { curMorse += "."; dotMs += 0.25 * (dur - dotMs); }       // dot
-      else { curMorse += "-"; dotMs += 0.12 * (dur / 3 - dotMs); }                   // dash
-      dotMs = Math.max(20, Math.min(200, dotMs));
+  // 3200 Hz chunks from the realtime capture worklet -> append to the current window
+  function appendSamples(arr) {
+    for (let i = 0; i < arr.length; i++) {
+      if (winLen >= buf.length) break;
+      const v = arr[i]; buf[winLen++] = v;
+      const a = v < 0 ? -v : v; if (a > peak) peak = a;
     }
   }
-  function classifyGap(gap) {
-    if (gap < dotMs * 2) return;             // intra-character gap
-    flushChar();                             // >= 2 dots -> character boundary
-    if (gap > dotMs * 5) wordPending = true; // >= 5 dots -> also a word boundary
-  }
-  function flushChar() {
-    if (!curMorse) return;
-    if (wordPending && outText && !outText.endsWith(" ")) outText += " ";
-    wordPending = false;
-    outText += (TEXT_OF[curMorse] || "");
-    curMorse = "";
-    trimOut();
-  }
-  function flushIdle(now) {                   // flush a pending char/word once the key has been quiet
-    if (keyOn) return;
-    const gap = now - edgeT;
-    if (curMorse && gap > dotMs * 2.5) flushChar();
-    if (gap > dotMs * 6 && outText && !outText.endsWith(" ")) { outText += " "; }
-    if (gap > 1500) dotMs = 60;                // recalibrate WPM after a long pause / between overs
-  }
-  function trimOut() { if (outText.length > 600) outText = outText.slice(-500); }
 
-  function drawLoop() {
+  function tick() {
+    if (!workerReady || inflight || !winLen) return;
+    if (peak < SILENCE) {                          // no signal: keep only a short lead, never accumulate
+      const keep = (0.4 * SR) | 0;                 // silence must not fill the window (-> premature finalize)
+      if (winLen > keep) { buf.copyWithin(0, winLen - keep, winLen); winLen = keep; lastInferLen = -1; }
+      peak = 0;
+      return;
+    }
+    if (winLen === lastInferLen) return;          // nothing new since the last decode
+    lastInferLen = winLen;
+    const lead = (SR / 4) | 0;                     // 0.25 s leading silence: CTC context for the 1st char
+    const L = Math.max(winLen + lead, MIN_SEC * SR);
+    const a = new Float32Array(L);
+    a.set(buf.subarray(0, winLen), lead);         // [silence | window | trailing silence]
+    inflight = true;
+    worker.postMessage({ type: "decode", id: ++reqId, audio: a }, [a.buffer]);
+  }
+
+  function onResult(m) {
+    inflight = false;
+    if (m.err) { return; }
+    const D = m.text || "";
+    if (D === prevLive) stable += 1; else { stable = 0; prevLive = D; }
+    live = D;
+    const paused = stable >= PAUSE_STABLE && winLen >= 3 * SR && D.trim();
+    const full = winLen >= (MAX_SEC - 0.5) * SR;
+    if (paused || full) finalize(D);
+    else render();
+  }
+
+  // commit the window's decode to the transcript and start a fresh window, keeping
+  // the audio captured during the inference so nothing is dropped at the seam.
+  function finalize(D) {
+    const t = D.trim();
+    if (t) committed += (committed && !committed.endsWith(" ") ? " " : "") + t;
+    if (committed.length > 800) committed = committed.slice(-700);
+    const sent = lastInferLen, tail = winLen - sent;
+    if (tail > 0) buf.copyWithin(0, sent, winLen);
+    winLen = Math.max(0, tail);
+    peak = 0; live = ""; prevLive = ""; stable = 0; lastInferLen = -1;
+    render();
+  }
+
+  function render() {
     if (out) {
-      out.innerHTML = esc(outText) + (curMorse ? '<span class="cw-live">' + esc(curMorse) + "</span>" : "");
+      out.innerHTML = esc(committed) +
+        (live ? (committed ? " " : "") + '<span class="cw-live">' + esc(live) + "</span>" : "");
       out.scrollTop = out.scrollHeight;
     }
-    $("cwWpm").textContent = Math.round(1200 / dotMs);
-    $("cwTone").textContent = (+$("cwToneSet").value || 600);
-    const sqv = $("cwSqVal"); if (sqv) sqv.textContent = (+$("cwSquelch").value || 32);
-    const snrv = $("cwSnr"); if (snrv) snrv.textContent = Math.max(0, Math.round(lastSnr));
     if (hint) {
-      hint.textContent = keyOn ? "▮ signal" : "listening — raise Sq if it decodes noise";
-      hint.classList.toggle("cw-on", keyOn);
+      hint.textContent = !workerReady ? "loading neural model…"
+        : (peak < SILENCE ? "turn on 🔊 RX to decode the receiver audio" : "decoding…");
     }
-    raf = requestAnimationFrame(drawLoop);
   }
   function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 
-  $("cwClear").addEventListener("click", () => { outText = ""; curMorse = ""; });
-  $("cwAuto").addEventListener("click", () => autoTone());
-
-  // pick the strongest bin in the 300-1000 Hz CW range over a short look
-  function autoTone() {
-    const ra = RA(); if (!ra || !ra.ctx()) return;
-    const ctx = ra.ctx();
-    if (!analyser) startDecoder();
-    const buf = new Uint8Array(analyser.frequencyBinCount);
-    let best = 0, bestMag = 0, frames = 0;
-    const acc = new Float32Array(analyser.frequencyBinCount);
-    const scan = setInterval(() => {
-      analyser.getByteFrequencyData(buf);
-      for (let i = 0; i < buf.length; i++) acc[i] += buf[i];
-      if (++frames >= 30) {
-        clearInterval(scan);
-        const lo = Math.round(300 / (ctx.sampleRate / 2) * buf.length);
-        const hi = Math.round(1000 / (ctx.sampleRate / 2) * buf.length);
-        for (let i = lo; i <= hi; i++) if (acc[i] > bestMag) { bestMag = acc[i]; best = i; }
-        const hz = Math.round(best * (ctx.sampleRate / 2) / buf.length / 10) * 10;
-        if (hz) $("cwToneSet").value = Math.max(300, Math.min(1000, hz));
-      }
-    }, 10);
-  }
+  $("cwClear").addEventListener("click", () => { committed = ""; live = ""; render(); });
 
   // ---- coder (text -> Morse sidetone; never transmits) ----
   const SEND_WPM = 18;
@@ -211,25 +206,24 @@
     ra.ensure();
     const ctx = ra.ctx(), bus = ra.bus();
     if (!ctx || !bus || !text) return;
-    const dot = 1.2 / SEND_WPM;               // seconds per dot
+    const dot = 1.2 / SEND_WPM;
     const tone = +$("cwToneSet").value || 600;
     const osc = ctx.createOscillator(); osc.type = "sine"; osc.frequency.value = tone;
     const g = ctx.createGain(); g.gain.value = 0.0001;
-    osc.connect(g); g.connect(bus);           // -> rxBus -> speakers AND the decoder's tap
+    osc.connect(g); g.connect(bus);              // -> rxBus -> speakers AND the decoder's tap
     let t = ctx.currentTime + 0.05;
     for (const chRaw of text.toUpperCase()) {
       if (chRaw === " ") { t += dot * 7; continue; }
       const m = MORSE[chRaw]; if (!m) continue;
       for (const el of m) {
         const dur = el === "-" ? dot * 3 : dot;
-        g.gain.setValueAtTime(0.0001, t);
-        g.gain.exponentialRampToValueAtTime(0.3, t + 0.006);     // soft keying (no clicks)
-        g.gain.setValueAtTime(0.3, t + dur - 0.006);
-        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-        g.gain.setValueAtTime(0, t + dur);        // snap to TRUE silence for the gap (0.0001 is still -80 dB)
-        t += dur + dot;                       // element + 1-dot intra-character gap
+        g.gain.setValueAtTime(0, t);                        // raised-edge keying to true 0/1
+        g.gain.linearRampToValueAtTime(0.3, t + 0.005);
+        g.gain.setValueAtTime(0.3, t + dur - 0.005);
+        g.gain.linearRampToValueAtTime(0, t + dur);
+        t += dur + dot;
       }
-      t += dot * 2;                           // -> 3-dot character gap
+      t += dot * 2;
     }
     osc.start(); osc.stop(t + 0.1);
   }

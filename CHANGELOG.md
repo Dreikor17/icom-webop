@@ -3,22 +3,43 @@
 All notable changes to **Radio WebOp** are documented here. This project adheres
 to [Semantic Versioning](https://semver.org).
 
-## [Unreleased]
+## [0.2.10] — 2026-06-26
+
+Big FT-991A + tooling release. **Note: this version relicenses Radio WebOp to
+AGPL-3.0-only** (see below).
 
 ### Added
+- **Neural CW decoder.** The CW tool's decoder is now the deep-learning **DeepCW** model
+  (ONNX) running in-browser via onnxruntime-web — vastly more accurate than the old
+  timing decoder under noise/QSB/QRM (≈0 % error down to ~0 dB SNR in testing). It taps
+  the RX bus through a realtime AudioWorklet, resamples to 3200 Hz, and re-decodes a
+  rolling window. The type-to-sidetone coder is unchanged (still never transmits).
 - **FT-991A: full CAT control.** Power, AF/RF/squelch, AGC, NB, DNR, manual notch,
-  preamp (IPO/AMP1), 12 dB attenuator, dial lock, split, RIT/clarifier, IF shift and
-  filter narrow/wide now work over Yaesu CAT, and the panel reads the radio's **real**
-  settings on connect (and keeps polling them). Previously only frequency and mode were
-  wired up — every other control was a silent no-op. Command formats verified against
-  the Yaesu CAT reference + Hamlib and confirmed on real hardware (RX-only, no TX).
+  **DNF auto-notch** (the A-NOTCH button), preamp (IPO/AMP1), 12 dB attenuator, dial
+  lock, split, RIT/clarifier, IF shift, filter narrow/wide — all over Yaesu CAT, with
+  the panel reading the radio's **real** settings on connect and polling them. Before,
+  only frequency and mode worked; everything else was a silent no-op.
+- **FT-991A: data/digital modes** — DATA-LSB, DATA-USB, DATA-FM and C4FM mode buttons.
+- **FT-991A: antenna tuner** — a TUNER toggle that switches the internal ATU in/out of
+  line (the transmit-to-tune cycle stays on the radio's own button).
+- **FT-991A: PTT** now keys/unkeys (`TX1;`/`TX0;`) like the Icom path, with the same
+  120 s stuck-TX failsafe.
 - **Update check** — the version badge links to a newer GitHub release when one exists.
-- **Built-in HTTPS** — `run.py --ssl-certfile/--ssl-keyfile` serves TLS directly on the
-  port (or `RADIO_WEBOP_SSL_CERT/_KEY`), so HTTPS works without a separate proxy.
+- **Built-in HTTPS** — `run.py --ssl-certfile/--ssl-keyfile` (or `RADIO_WEBOP_SSL_CERT/
+  _KEY`) serves TLS directly on the port, so HTTPS works without a separate proxy.
 
 ### Fixed
 - **Center-mode scope** no longer snaps when you change frequency — the whole view is
   anchored to the tuned freq and the content slides under a fixed center marker.
+- **AF audio scope** (no-scope radios): the tuned-marker overlay no longer flickers while
+  RX audio is on.
+- Generic remote-access docs (no longer name a specific VPN); `.mjs` ES modules are
+  served with a JavaScript MIME type.
+
+### Changed
+- **License: now AGPL-3.0-only** ([LICENSE](LICENSE), [NOTICE](NOTICE)). The neural CW
+  decoder bundles the AGPL-3.0 DeepCW model, so the project is AGPL — if you host a
+  modified copy, you must offer users the corresponding source. onnxruntime-web is MIT.
 
 ## [0.2.02] — 2026-06-26
 
@@ -177,6 +198,7 @@ live spectrum scope + waterfall.
 - Mic capture (TX) needs a secure context (HTTPS or localhost), so it won't run
   over plain-HTTP remote access; RX audio playback works over HTTP.
 
+[0.2.10]: https://github.com/Dreikor17/radio-webop/releases/tag/v0.2.10
 [0.2.02]: https://github.com/Dreikor17/radio-webop/releases/tag/v0.2.02
 [0.2.2]: https://github.com/Dreikor17/radio-webop/releases/tag/v0.2.2
 [0.2.1]: https://github.com/Dreikor17/radio-webop/releases/tag/v0.2.1

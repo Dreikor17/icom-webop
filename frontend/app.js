@@ -67,12 +67,12 @@
   }
 
   function updateScopeLabels(m) {
-    let lo, hi, c;
-    if (m.mode === 1) { lo = m.lower; hi = m.upper; c = (lo + hi) / 2; }
-    else { const vc = m.tuned || m.center; lo = vc - m.span / 2; hi = vc + m.span / 2; c = vc; }  // center on the tuned freq
+    let lo, hi;
+    if (m.mode === 1) { lo = m.lower; hi = m.upper; }
+    else { const vc = m.tuned || m.center; lo = vc - m.span / 2; hi = vc + m.span / 2; }
+    // center freq label removed — the tuned-channel marker sits there and overlapped it
     $("lblLeft").textContent = formatFreq(lo);
     $("lblRight").textContent = formatFreq(hi);
-    $("lblCenter").textContent = formatFreq(m.tuned || c);
   }
 
   // ---- state -> UI ----
@@ -597,7 +597,7 @@
     scope.clear();
     renderFreq($("mainFreq"), 0, false);
     renderFreq($("subFreq"), 0, false);
-    $("lblLeft").textContent = $("lblCenter").textContent = $("lblRight").textContent = "";
+    $("lblLeft").textContent = $("lblRight").textContent = "";
     if (state.connected) {                          // switching radios -> drop the current connection
       fetch("/api/disconnect", { method: "POST" });
       $("conn").classList.add("open");              // reopen the connect controls so they can reconnect
@@ -782,6 +782,8 @@
   }
   // minimal audio API for overlay tools (e.g. the CW decoder/coder in cwtool.js)
   window.RadioAudio = { ensure: ensureAudioCtx, ctx: () => audioCtx, bus: () => rxBus, state: () => state };
+  // control channel for overlay tools (CW TX): send a WS command + read live state
+  window.RadioControl = { send: (o) => send(o), state: () => state };
   function playAudio(buf) {
     if (!audioOn || !audioCtx) return;
     const rate = new DataView(buf).getUint16(2, true) || 16000;

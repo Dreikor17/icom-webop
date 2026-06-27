@@ -3,16 +3,40 @@
 All notable changes to **Radio WebOp** are documented here. This project adheres
 to [Semantic Versioning](https://semver.org).
 
-## [Unreleased]
+## [0.2.12] — 2026-06-26
+
+CW transmit (both makes), live FT-991A transmit meters, a resizable CW window, and
+transmit-safety hardening.
 
 ### Added
+- **CW transmit.** A **TX** button next to Play sends the typed message as CW on the radio —
+  operator-triggered, one bounded message per press, just like keying PTT, at the WPM you set.
+  Per radio: **Icom** uses CI-V `17` (Send-CW-message) with semi break-in + `14 0C` keyer speed,
+  so the rig generates the CW; **FT-991A** has no arbitrary-text CW CAT command, so it's keyed by
+  host-timed **DTR on its second (Standard) USB port** (PC KEYING = DTR, CAT RTS disabled — the
+  N1MM / fldigi / cwdaemon method); the app auto-detects the sibling port and sets the menus on
+  connect. Only in CW/CW-R mode. Bounded by an auto-stop, the 120 s failsafe, and the hardware TOT;
+  press again to stop; the key line is forced up on connect / stop / disconnect / client-drop and
+  PC KEYING is disarmed on disconnect. Play stays the off-air sidetone so you never key by accident.
+- **Resizable CW tool window** — drag any edge or corner to resize the CW panel; the decoded-
+  text area grows with it. Applies to any overlay tool panel.
 - **Transmit-safety contract** ([docs/ADDING-A-RADIO.md](docs/ADDING-A-RADIO.md)) — a gate
   for every radio that can key TX: the 120 s PTT failsafe, hardware TOT on connect, high-SWR
-  cutoff + warning, RF power 0 % on connect, unkey-on-disconnect, and no autonomous TX.
+  cutoff + warning, RF power 0 % on connect, unkey-on-disconnect, bounded/stoppable CW send,
+  and operator-triggered only (no unattended/auto-CQ transmission).
 - **Hardware TX time-out timer set on connect** — a backstop if the control link drops
   mid-transmit. FT-991A = 2 min (120 s exactly); IC-9700 / IC-7300MK2 = 3 min (their coarsest
   non-OFF step — the app's 120 s PTT failsafe stays the precise limit). Verified on hardware.
 - **CW coder WPM control** — the type-to-Morse sidetone speed is adjustable (5–40 WPM).
+
+### Fixed
+- **FT-991A transmit meters** — PO / SWR / ALC / COMP / Vd / Id now read live from the radio
+  (Yaesu `RM` command); before, only the S-meter was polled so the others sat dead like the
+  simulator. The TX meters read during transmit; the S-meter works on receive.
+
+### Changed
+- **Scope: removed the center frequency label** — the tuned-channel marker sat right on top
+  of it; the edge (left/right) frequency labels still show.
 
 ## [0.2.10] — 2026-06-26
 

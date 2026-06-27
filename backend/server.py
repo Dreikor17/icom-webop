@@ -239,6 +239,9 @@ async def api_connect(request):
             _bind_radio(radio)
         if kind == "serial":
             baud = int(body.get("baud") or getattr(profile, "default_baud", 115200))
+            # CAT port opens with control lines at their defaults (RTS high) so CAT works
+            # regardless of the radio's CAT-RTS setting. FT-991A CW keys on the SIBLING
+            # (Standard) port's DTR line, opened separately — never on this CAT port.
             tp = SerialTransport(body["port"], baud, stopbits=2 if is_yaesu else 1)
         elif kind == "lan":
             if is_yaesu:
@@ -299,6 +302,8 @@ async def ws_endpoint(ws: WebSocket):
         # can be lost when the socket is already closing.
         if radio.state.get("ptt"):
             radio.set_ptt(False)
+        if radio.state.get("cw_tx"):                  # stop an in-progress CW message too
+            radio.stop_cw()
 
 
 def _handle_cmd(cmd: dict) -> None:
@@ -356,6 +361,10 @@ def _handle_cmd(cmd: dict) -> None:
             radio.set_duplex(int(cmd["mode"]))
         elif action == "ptt":
             radio.set_ptt(bool(cmd["tx"]))
+        elif action == "cw_tx":
+            radio.send_cw(str(cmd.get("text", "")), int(cmd.get("wpm", 18)))
+        elif action == "cw_stop":
+            radio.stop_cw()
     except (KeyError, ValueError, TypeError):
         pass
 

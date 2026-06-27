@@ -50,6 +50,16 @@ class RadioProfile:
     # app's 120 s PTT failsafe stays the precise limit there. See docs/ADDING-A-RADIO.md.
     tot_civ: tuple = ()            # Icom: (0x00, datanum_lo, value); () = none
     tot_cat: str = ""              # Yaesu: full CAT EX string; "" = none
+    # CW transmit: how this radio sends a typed CW message. Operator-triggered — one
+    # bounded message per TX press, fully under the operator's control, and the RIG
+    # generates the CW at the keyer speed we set (cleaner than host-timed keying; the
+    # Icom carrier can't be keyed by PTT in CW mode anyway). "" = unsupported;
+    # "civ17" = Icom Send-CW-message (CI-V 17 + semi BK-IN + 14 0C keyer speed);
+    # "line"  = host-timed keying of a serial control line (Yaesu FT-991A: PC KEYING =
+    #           RTS/DTR; the FT-991A has NO arbitrary-text CW CAT command, so this is the
+    #           same mechanism N1MM / fldigi / cwdaemon use). See docs/ADDING-A-RADIO.md.
+    cw_send: str = ""
+    cw_line: str = ""             # for cw_send="line": control line to key ("rts" | "dtr")
     make: str = "Icom"            # manufacturer, shown before the model in the picker
     protocol: str = "civ"         # "civ" (Icom CI-V) | "yaesu" (Yaesu CAT)
     has_scope: bool = True        # False = no spectrum/waterfall over the control link
@@ -80,6 +90,7 @@ class RadioProfile:
             "has_preamp": self.has_preamp,
             "has_att": self.has_att,
             "has_tuner": self.has_tuner,
+            "has_cw_tx": bool(self.cw_send),
         }
 
 
@@ -103,6 +114,7 @@ IC9700 = RadioProfile(
     },
     mod_dataoff=(0x01, 0x15), lan_mod_level=(0x01, 0x14),
     tot_civ=(0x00, 0x41, 0x01),     # TX TOT 0041 = 3 min (no 2-min step; app's 120 s failsafe is the precise limit)
+    cw_send="civ17",                # CW message TX via CI-V 17 (semi BK-IN keys it)
     power_zero_bands=[145_000_000, 435_000_000, 1_295_000_000],
     default_freq=144_200_000,
     steps=[(10, "10 Hz"), (100, "100 Hz"), (1000, "1 kHz"), (5000, "5 kHz"),
@@ -150,6 +162,7 @@ IC7300MK2 = RadioProfile(
     },
     mod_dataoff=(0x00, 0x84), lan_mod_level=(0x00, 0x83),
     tot_civ=(0x00, 0x32, 0x01),     # TX TOT 0032 = 3 min (closest to 120 s)
+    cw_send="civ17",                # CW message TX via CI-V 17 (semi BK-IN keys it)
     power_zero_bands=[],            # HF RF power is a single setting
     default_freq=14_074_000,
     steps=[(1, "1 Hz"), (10, "10 Hz"), (100, "100 Hz"), (1000, "1 kHz"),
@@ -205,6 +218,11 @@ FT991A = RadioProfile(
     },
     mod_dataoff=(0x00, 0x00), lan_mod_level=(0x00, 0x00),
     tot_cat="EX03602;",             # menu 036 TX TOT = 2 min = 120 s (exact)
+    # CW TX: host-timed DTR keying on the SECOND (Standard) USB port — the proven method
+    # (N1MM/fldigi/cwdaemon). CAT runs on the Enhanced port; on connect the app sets
+    # menu 033 CAT RTS=DISABLE + menu 060 PC KEYING=DTR and opens the sibling port DTR-low.
+    # RTS keying on the CAT port is forbidden (collides with CAT RTS -> breaks PTT).
+    cw_send="line", cw_line="dtr",
     power_zero_bands=[],
     default_freq=14_074_000,
     steps=[(10, "10 Hz"), (100, "100 Hz"), (1000, "1 kHz"), (2500, "2.5 kHz"),

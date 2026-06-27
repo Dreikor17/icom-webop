@@ -52,12 +52,19 @@ just adding a profile.
 - **Band-plan overlay enhancements** (the overlay itself shipped): let the user pick
   their license class to highlight just their privileges and soft-flag tuning outside
   them; make the data region-aware so non-US band plans can drop in.
-- **CW encoder / decoder** — *shipped*. The "CW" button pops a draggable panel over the
-  waterfall with a **neural decoder** (the DeepCW ONNX model from e04/deepcw-engine, run
-  in-browser via onnxruntime-web) plus a type-to-Morse soft-keyed sidetone (no transmit).
-  This is what relicensed the app to **AGPL-3.0** (deliberate opt-in for the accuracy).
-  *Follow-ups:* tune the streaming finalize so the last char of a discrete burst never
-  slips; optional WebGPU backend; actual CW keying to TX via the keyer (PTT-failsafe-bound).
+- **CW encoder / decoder / transmit** — *shipped*. The "CW" button pops a draggable panel
+  over the waterfall with a **neural decoder** (the DeepCW ONNX model from e04/deepcw-engine,
+  run in-browser via onnxruntime-web), a type-to-Morse soft-keyed off-air sidetone, and a
+  **TX button** that sends the typed message as CW — operator-triggered, one bounded message,
+  failsafe- and TOT-bound. Icom keys via CI-V `17` (semi break-in) so the rig generates the CW;
+  the FT-991A is keyed by host-timed **DTR on its Standard USB port** (PC KEYING=DTR, CAT RTS
+  disabled), since it has no arbitrary-text CW CAT command. The decoder is what relicensed the app to **AGPL-3.0** (a
+  deliberate opt-in for the accuracy). *Follow-ups:* tune the streaming finalize so the last
+  char of a discrete burst never slips; optional WebGPU backend.
+- **Audio recorder** — capture the RX audio (and optionally TX) to a file from the browser:
+  start/stop with an elapsed-time + level readout and download. `MediaRecorder` on the
+  pre-volume `rxBus` → WebM/Opus (or WAV), so it works for every transport (LAN PCM, USB
+  audio, AF). Foundation for QSO timestamping / a recording log later.
 - **More overlay tools** over the waterfall (the framework is in place) — e.g. RTTY/FT8
   decode, a tuning/zero-beat aid, memory keyer.
 - **Tone / DTCS** (CTCSS encode/decode) + an editable duplex offset (M3.5).
@@ -77,7 +84,7 @@ just adding a profile.
   interface / firewall / VPN). *Built-in HTTPS shipped* — serve TLS directly with
   `run.py --ssl-certfile/--ssl-keyfile` (or `RADIO_WEBOP_SSL_CERT/_KEY`).
 - **Remote power-on** from networked standby where the radio supports it.
-- Audio: selectable **codec / sample-rate**, recording, lower-latency options.
+- Audio: selectable **codec / sample-rate**, lower-latency options.
 
 ## Non-goals (for now)
 - Non-Icom rigs / Hamlib backends — possible later via the transport+profile split,

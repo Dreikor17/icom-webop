@@ -37,6 +37,66 @@ ScopeCb = Callable[[civ.ScopeSweep], None]
 StateCb = Callable[[dict], None]
 
 
+# --- CW keying (operator-triggered message send) ---------------------------
+# Allowed characters for the Icom "Send CW message" command (CI-V 17), per the
+# CI-V reference. Anything outside this set is dropped before transmit.
+CW_CIV_CHARS = set("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+                   "/?.-,:'()=+\"@ ")
+# Charset the FT-991A CW path (host-timed DTR line keying) can send: only glyphs that
+# exist in _MORSE are keyable, so anything else is dropped.
+CW_YAESU_CHARS = set("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ/?.,=+-: ")
+
+_MORSE = {
+    "A": ".-", "B": "-...", "C": "-.-.", "D": "-..", "E": ".", "F": "..-.", "G": "--.",
+    "H": "....", "I": "..", "J": ".---", "K": "-.-", "L": ".-..", "M": "--", "N": "-.",
+    "O": "---", "P": ".--.", "Q": "--.-", "R": ".-.", "S": "...", "T": "-", "U": "..-",
+    "V": "...-", "W": ".--", "X": "-..-", "Y": "-.--", "Z": "--..",
+    "0": "-----", "1": ".----", "2": "..---", "3": "...--", "4": "....-", "5": ".....",
+    "6": "-....", "7": "--...", "8": "---..", "9": "----.",
+    ".": ".-.-.-", ",": "--..--", "?": "..--..", "/": "-..-.", "=": "-...-", "+": ".-.-.",
+    "-": "-....-", ":": "---...", "(": "-.--.", ")": "-.--.-", '"': ".-..-.", "@": ".--.-.",
+    "'": ".----.",
+}
+
+
+def cw_duration(text: str, wpm: int) -> float:
+    """Estimated on-air seconds for ``text`` at ``wpm`` (PARIS timing). Used to size
+    the CW-TX safety auto-stop and the UI 'transmitting' indicator."""
+    dot = 1.2 / max(1, int(wpm))
+    units = 0
+    for ch in str(text).upper():
+        if ch == " ":
+            units += 7                       # word gap
+            continue
+        m = _MORSE.get(ch)
+        if not m:
+            continue
+        for el in m:
+            units += (3 if el == "-" else 1) + 1   # element + intra-element gap
+        units += 2                            # -> 3-dot inter-character gap total
+    return units * dot
+
+
+def cw_elements(text: str, wpm: int) -> list:
+    """(key_down, seconds) segments to key ``text`` as Morse at ``wpm`` (PARIS
+    timing) for line keying (RTS/DTR): element = key-down, gap = key-up."""
+    dot = 1.2 / max(1, int(wpm))
+    seq: list = []
+    for ch in str(text).upper():
+        if ch == " ":
+            seq.append((False, dot * 7))                       # word gap
+            continue
+        m = _MORSE.get(ch)
+        if not m:
+            continue
+        for el in m:
+            seq.append((True, dot * (3 if el == "-" else 1)))  # dit / dah (key down)
+            seq.append((False, dot))                           # intra-element gap
+        if seq and not seq[-1][0]:
+            seq[-1] = (False, dot * 3)                         # last gap -> inter-character (3 dots)
+    return seq
+
+
 def smeter_label(level: int) -> str:
     if level <= 120:
         s = round(level * 9 / 120)
@@ -92,6 +152,9 @@ def fresh_state(p) -> dict:
         "split": 0, "duplex": 0,
         "offset": 600000,
         "has_scope": getattr(p, "has_scope", True),
+        "cw_tx": False,                                  # CW message currently transmitting
+        "has_cw_tx": bool(getattr(p, "cw_send", "")),    # this radio can send a typed CW message
+        "cw_tx_ready": False,                            # CW TX usable now (Icom: connected; FT-991A: key port open)
     }
 
 
@@ -112,6 +175,7 @@ class Radio:
         self._lanmod_orig: Optional[int] = None      # original LAN MOD Level (for restore)
         self._mod_managed = False
         self._ptt_deadline: Optional[float] = None   # PTT failsafe deadline (monotonic)
+        self._cw_deadline: Optional[float] = None    # CW-TX auto-stop deadline (monotonic)
         self._suppress_poll = False                  # mute panel reads during the connect band-cycle
         self._switch_at = 0.0                         # monotonic time of the last MAIN/SUB switch
 
@@ -152,6 +216,8 @@ class Radio:
         self.state["connected"] = True
         self.state["transport"] = transport.name
         self.state["audio"] = getattr(transport, "supports_audio", False)
+        # Icom CW TX (CI-V 17) needs no extra port — ready as soon as we're connected.
+        self.state["cw_tx_ready"] = bool(getattr(self.profile, "cw_send", ""))
 
         # enable the scope output (needs BOTH on/off and data-output on)
         self.set_scope_mode(self.state["scope_center"])
@@ -240,6 +306,8 @@ class Radio:
             self._poll_thread = None
         if self._tp:
             try:
+                if self.state.get("cw_tx"):                  # stop an in-progress CW message
+                    self._write(self._b(0x17, None, b"\xff"))
                 if self.state.get("ptt"):                    # never leave keyed
                     self._write(self._b(0x1C, 0x00, b"\x00"))
                 if self.state.get("vox"):                    # never leave VOX able to auto-key
@@ -258,10 +326,13 @@ class Radio:
         self._modsrc_orig = None
         self._lanmod_orig = None
         self._ptt_deadline = None
+        self._cw_deadline = None
         self.state["connected"] = False
         self.state["transport"] = None
         self.state["audio"] = False
         self.state["ptt"] = False
+        self.state["cw_tx"] = False
+        self.state["cw_tx_ready"] = False
         self._emit_state()
 
     def _write(self, frame: bytes) -> None:
@@ -389,6 +460,11 @@ class Radio:
                     self.set_ptt(False)
                 if self.state.get("vox"):
                     self.set_rx_func("vox", False)
+            # CW-TX bounded auto-stop: the rig self-keys the message via BK-IN, so the
+            # PTT failsafe doesn't cover it — stop it (and clear the indicator) once the
+            # message should be done.
+            if self._cw_deadline and time.monotonic() >= self._cw_deadline:
+                self.stop_cw()
             self._write(self._b(0x15, 0x02))             # S-meter (active band)
             if self.state["meter"] != "S":               # selected TX meter for the big bar
                 self._write(self._b(0x15, civ.METER_SUBS[self.state["meter"]]))
@@ -579,6 +655,39 @@ class Radio:
             self._ptt_deadline = None                     # keep armed while VOX is still active
         self._write(self._b(0x1C, 0x00, bytes([1 if tx else 0])))
         self._emit_state()
+
+    # -- CW message transmit (operator-triggered) ----------------------------
+    def send_cw(self, text: str, wpm: int = 18) -> None:
+        """Transmit a typed CW message. Operator-triggered, one bounded message per
+        call: set the keyer speed from WPM, enable semi break-in (so CI-V 17 keys the
+        TX), then hand the text to the rig's keyer, which generates clean CW and drops
+        back to RX on its own. Bounded by an auto-stop (17 FF) as a safety backstop."""
+        if getattr(self.profile, "cw_send", "") != "civ17" or not self.state.get("connected"):
+            return
+        if self.state.get("mode_name") not in ("CW", "CW-R"):
+            return                                       # only meaningful in CW (the UI guards too)
+        msg = "".join(c for c in str(text) if c in CW_CIV_CHARS)[:30]   # cmd 17 max 30 chars
+        if not msg.strip():
+            return
+        wpm = max(6, min(48, int(wpm)))                  # IC keyer range 6-48 WPM
+        speed = round((wpm - 6) / 42 * 255)
+        self._write(self._b(0x14, 0x0C, civ.level_to_bcd(speed)))   # keying speed
+        self._write(self._b(0x16, 0x47, b"\x01"))                    # semi BK-IN: cmd 17 keys the TX
+        self._write(self._b(0x17, None, msg.encode("ascii")))       # send the CW message
+        self._cw_deadline = time.monotonic() + cw_duration(msg, wpm) + 2.0
+        self.state["cw_tx"] = True
+        self._emit_state()
+
+    def stop_cw(self) -> None:
+        """Stop an in-progress CW message (and clear the indicator). 17 FF aborts the
+        rig's keyer; harmless if the message already finished."""
+        was = self.state.get("cw_tx")
+        self._cw_deadline = None
+        if self._tp and getattr(self.profile, "cw_send", "") == "civ17":
+            self._write(self._b(0x17, None, b"\xff"))    # FF stops sending CW
+        if was:
+            self.state["cw_tx"] = False
+            self._emit_state()
 
     # -- state notify --------------------------------------------------------
     def _mirror_active(self) -> None:

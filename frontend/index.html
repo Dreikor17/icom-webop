@@ -9,7 +9,7 @@
 <body>
 
 <header class="topbar">
-  <div class="brand"><span class="mk">RADIO</span> WebOp<span class="model" id="modelLabel"></span><span class="ver">v0.2.10</span><a class="ver-update" id="verUpdate" hidden target="_blank" rel="noopener"></a>
+  <div class="brand"><span class="mk">RADIO</span> WebOp<span class="model" id="modelLabel"></span><span class="ver">v0.2.12</span><a class="ver-update" id="verUpdate" hidden target="_blank" rel="noopener"></a>
     <button id="themeBtn" class="theme-btn" title="Day / night theme">🌙</button>
   </div>
   <div class="conn open" id="conn">
@@ -116,7 +116,6 @@
       <canvas id="overlay" class="overlay-canvas"></canvas>
       <div class="scope-labels">
         <span id="lblLeft" class="lbl-left"></span>
-        <span id="lblCenter" class="lbl-center"></span>
         <span id="lblRight" class="lbl-right"></span>
       </div>
       <div class="no-scope" id="noScope" hidden>No band scope over CAT — turn on RX audio for an audio spectrum, or just use frequency &amp; mode control</div>
@@ -154,8 +153,12 @@
           <button class="key sm" id="cwClear">Clear</button>
         </div>
         <div class="cw-row">
-          <input id="cwSend" class="cw-send" placeholder="type → Morse (local sidetone, no transmit)" maxlength="160">
+          <input id="cwSend" class="cw-send" placeholder="type &rarr; Morse &mdash; &#9654; sidetone &middot; TX keys the radio" maxlength="160">
           <button class="key sm" id="cwPlay" title="Play locally as a sidetone — does NOT key the radio">&#9654;</button>
+          <button class="key sm cw-tx" id="cwTx" title="Transmit this message as CW on the radio" hidden>TX</button>
+        </div>
+        <div class="cw-row cw-txrow" id="cwTxRow" hidden>
+          <span class="cw-txhint" id="cwTxHint"></span>
         </div>
         <div class="cw-row">
           <span class="cw-lbl">WPM</span>

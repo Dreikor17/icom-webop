@@ -148,7 +148,6 @@ select,input,.baud{
 .overlay-canvas{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}
 .scope-labels{position:absolute;left:0;right:0;top:2px;display:flex;justify-content:space-between;
   padding:0 6px;font-family:var(--mono);font-size:11px;color:#bfe6ff;text-shadow:0 0 4px #000;pointer-events:none}
-.lbl-center{color:var(--tune)}
 
 .scope-ctl{display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap}
 .sc-btn{background:#0a2233;color:var(--txt);border:1px solid #14425c;border-radius:5px;padding:4px 9px;cursor:pointer;font-size:12px}
@@ -174,8 +173,19 @@ select,input,.baud{
 .scopepane{position:relative}
 .tool-panel{position:absolute;z-index:40;left:12px;bottom:50px;width:300px;max-width:calc(100% - 24px);
   background:rgba(11,18,32,.97);border:1px solid var(--border);border-radius:10px;
-  box-shadow:0 12px 34px rgba(0,0,0,.6);color:var(--txt);font-size:12px;overflow:hidden}
+  box-shadow:0 12px 34px rgba(0,0,0,.6);color:var(--txt);font-size:12px;overflow:hidden;
+  display:flex;flex-direction:column;min-width:240px;min-height:160px}
 .tool-panel[hidden]{display:none}
+/* drag any edge / corner to resize (handles are absolute, so they stay out of the flex flow) */
+.tp-resize{position:absolute;z-index:60;touch-action:none}
+.tp-resize-n{top:0;left:0;right:0;height:6px;cursor:ns-resize}
+.tp-resize-s{bottom:0;left:0;right:0;height:6px;cursor:ns-resize}
+.tp-resize-e{top:0;bottom:0;right:0;width:6px;cursor:ew-resize}
+.tp-resize-w{top:0;bottom:0;left:0;width:6px;cursor:ew-resize}
+.tp-resize-ne{top:0;right:0;width:14px;height:14px;cursor:nesw-resize}
+.tp-resize-nw{top:0;left:0;width:14px;height:14px;cursor:nwse-resize}
+.tp-resize-se{bottom:0;right:0;width:14px;height:14px;cursor:nwse-resize}
+.tp-resize-sw{bottom:0;left:0;width:14px;height:14px;cursor:nesw-resize}
 .tp-head{display:flex;align-items:center;gap:8px;padding:6px 9px;background:var(--surface);
   border-bottom:1px solid var(--border);cursor:move;user-select:none}
 .tp-title{font-weight:700;letter-spacing:1px;color:var(--accent)}
@@ -183,8 +193,8 @@ select,input,.baud{
 .tp-meta b{color:var(--txt);font-family:var(--mono)}
 .tp-close{margin-left:auto;background:none;border:none;color:var(--txt-dim);cursor:pointer;font-size:13px;line-height:1;padding:0 2px}
 .tp-close:hover{color:var(--txt)}
-.tp-body{padding:8px 9px;display:flex;flex-direction:column;gap:6px}
-.cw-out{height:88px;overflow-y:auto;background:var(--field);border:1px solid var(--border);border-radius:6px;
+.tp-body{padding:8px 9px;display:flex;flex-direction:column;gap:6px;flex:1 1 auto;min-height:0;overflow:auto}
+.cw-out{flex:1 1 auto;min-height:88px;overflow-y:auto;background:var(--field);border:1px solid var(--border);border-radius:6px;
   padding:6px 8px;font-family:var(--mono);font-size:14px;letter-spacing:1px;color:var(--accent-2);
   white-space:pre-wrap;word-break:break-word;line-height:1.4}
 .cw-out .cw-live{color:var(--amber)}
@@ -201,6 +211,13 @@ select,input,.baud{
 .cw-status{color:var(--txt-dim);font-family:var(--mono);font-size:10px}
 .cw-row input.cw-tone{flex:0 0 64px;min-width:64px}
 .cw-row input.cw-wpm{flex:0 0 52px;min-width:52px}
+/* CW transmit button — amber accent (it keys the radio), red + pulse while on air */
+.key.sm.cw-tx{border-color:var(--amber);color:var(--amber);font-weight:700;min-width:34px}
+.key.sm.cw-tx:hover{background:var(--amber);color:#04121f}
+.key.sm.cw-tx[disabled]{opacity:.45;cursor:not-allowed;border-color:var(--border);color:var(--txt-dim);background:none}
+.key.sm.cw-tx.on{background:linear-gradient(180deg,#ff5a5a,#c52a2a);border-color:#ff5a5a;color:#fff;box-shadow:0 0 12px var(--red);animation:cwtxpulse 1s ease-in-out infinite}
+@keyframes cwtxpulse{50%{box-shadow:0 0 4px var(--red)}}
+.cw-txhint{font-size:10px;color:var(--amber);flex:1 1 auto}
 .cw-credit{font-size:9px;color:var(--txt-dim);opacity:.7;margin-top:3px;text-align:center}
 .cw-credit a{color:var(--txt-dim);text-decoration:none}
 .cw-credit a:hover{text-decoration:underline}

@@ -30,6 +30,33 @@ def available_ports() -> list[dict]:
     return out
 
 
+def _hwid_serial(hwid: str) -> Optional[str]:
+    """Pull the USB serial-number token (SER=...) out of a pyserial hwid string."""
+    for tok in (hwid or "").split():
+        if tok.upper().startswith("SER="):
+            return tok[4:]
+    return None
+
+
+def find_sibling_port(device: str) -> Optional[str]:
+    """Find the OTHER COM port of the same physical USB device — e.g. the FT-991A's
+    Standard port that is the sibling of its Enhanced/CAT port. The FT-991A's CP2105
+    enumerates two ports sharing one USB serial number; CW is keyed on the Standard
+    one's control line. Returns the sibling device name, or None if not found."""
+    ports = list(list_ports.comports())
+    target = None
+    for p in ports:
+        if p.device == device:
+            target = _hwid_serial(p.hwid)
+            break
+    if not target:
+        return None
+    for p in ports:
+        if p.device != device and _hwid_serial(p.hwid) == target:
+            return p.device
+    return None
+
+
 class Transport:
     # Audio support (overridden by LanTransport). on_audio is called with raw
     # RX PCM (16-bit LE mono); write_audio takes TX (mic) PCM in the same format.
@@ -93,6 +120,61 @@ class SerialTransport(Transport):
                 self._ser.close()
             except Exception:
                 pass
+
+
+class CwKeyPort:
+    """A SECOND serial port opened solely to key CW via its DTR line (the FT-991A's
+    Standard USB port, sibling of the Enhanced/CAT port). No CAT data flows here — only
+    the DTR control line is toggled. Always opens key-UP (DTR de-asserted) and forces it
+    up again on close, so it can never leave the rig keyed."""
+
+    def __init__(self, device: str) -> None:
+        self.device = device
+        self._ser: Optional[serial.Serial] = None
+        # Serializes key()/close() so a key-down can never land between close()'s
+        # CLRDTR and the handle close (which would strand DTR HIGH = stuck carrier).
+        self._lock = threading.Lock()
+
+    def open(self) -> None:
+        ser = serial.Serial()
+        ser.port = self.device
+        ser.baudrate = 9600           # irrelevant: we only drive DTR, no data
+        ser.timeout = 0.1
+        ser.rts = False               # set before open so the lines come up LOW (key up)
+        ser.dtr = False
+        ser.open()
+        with self._lock:
+            self._ser = ser
+
+    def key(self, down: bool) -> None:
+        with self._lock:              # mutually exclusive with close()
+            s = self._ser
+            if not s or not s.is_open:
+                return
+            try:
+                s.dtr = bool(down)    # DTR asserted = key down = CW element
+            except Exception:
+                pass
+
+    def close(self) -> None:
+        with self._lock:
+            s = self._ser
+            self._ser = None
+            if s:
+                try:
+                    s.dtr = False     # never leave keyed
+                    s.rts = False
+                except Exception:
+                    pass
+                try:
+                    s.close()
+                except Exception:
+                    pass
+
+    @property
+    def is_open(self) -> bool:
+        s = self._ser
+        return bool(s and s.is_open)
 
 
 class SimTransport(Transport):
@@ -421,6 +503,10 @@ class YaesuSimTransport(Transport):
         elif cmd == "SM0":
             lvl = int(90 + 70 * abs(math.sin((time.time() - self._t0) * 0.7)))   # wandering S-meter
             out = f"SM0{min(255, lvl):03d};"
+        elif cmd.startswith("RM") and len(cmd) >= 3 and cmd[2] in "012345678":   # READ METER
+            p1 = cmd[2]
+            v = int(70 + 80 * abs(math.sin((time.time() - self._t0) * (0.6 + int(p1) * 0.13))))
+            out = f"RM{p1}{min(255, max(0, v)):03d};"
         elif cmd == "TX":
             out = "TX0;"
         elif cmd == "ID":

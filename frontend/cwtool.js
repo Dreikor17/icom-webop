@@ -16,6 +16,7 @@
   "use strict";
   const $ = (id) => document.getElementById(id);
   const RA = () => window.RadioAudio || null;
+  const RC = () => window.RadioControl || null;   // WS command channel + live radio state
   const CW_WORKER_V = "1";                       // bump when cw-worker.js changes (cache-bust)
 
   const MORSE = {
@@ -70,6 +71,52 @@
     head.addEventListener("pointerup", end);
     head.addEventListener("pointercancel", end);
     head.addEventListener("lostpointercapture", end);
+  })();
+
+  // ---- resize the panel by dragging any edge / corner ----
+  (function () {
+    const MINW = 240, MINH = 160;
+    const prect = () => (panel.offsetParent || panel.parentElement).getBoundingClientRect();
+    for (const dir of ["n", "s", "e", "w", "ne", "nw", "se", "sw"]) {
+      const h = document.createElement("div");
+      h.className = "tp-resize tp-resize-" + dir;
+      h.dataset.dir = dir;
+      panel.appendChild(h);                          // absolute -> stays out of the flex flow
+    }
+    let dir = null, sx = 0, sy = 0, sw = 0, sh = 0, sl = 0, st = 0;
+    panel.addEventListener("pointerdown", (e) => {
+      const t = e.target.closest(".tp-resize"); if (!t) return;
+      dir = t.dataset.dir;
+      const p = prect(), r = panel.getBoundingClientRect();
+      sx = e.clientX; sy = e.clientY; sw = r.width; sh = r.height;
+      sl = r.left - p.left; st = r.top - p.top;
+      panel.style.left = sl + "px"; panel.style.top = st + "px";   // pin to left/top so resize is predictable
+      panel.style.right = "auto"; panel.style.bottom = "auto";
+      panel.style.width = sw + "px"; panel.style.height = sh + "px";
+      try { t.setPointerCapture(e.pointerId); } catch (_) {}
+      e.preventDefault(); e.stopPropagation();
+    });
+    panel.addEventListener("pointermove", (e) => {
+      if (!dir || !(e.buttons & 1)) return;
+      const p = prect();
+      const dx = e.clientX - sx, dy = e.clientY - sy;
+      let w = sw, h = sh, l = sl, t = st;
+      if (dir.includes("e")) w = sw + dx;
+      if (dir.includes("s")) h = sh + dy;
+      if (dir.includes("w")) { w = sw - dx; l = sl + dx; }
+      if (dir.includes("n")) { h = sh - dy; t = st + dy; }
+      if (w < MINW) { if (dir.includes("w")) l -= (MINW - w); w = MINW; }   // keep the anchored edge fixed
+      if (h < MINH) { if (dir.includes("n")) t -= (MINH - h); h = MINH; }
+      w = Math.min(w, p.width); h = Math.min(h, p.height);                  // never exceed the scope pane
+      l = Math.max(0, Math.min(l, p.width - w));
+      t = Math.max(0, Math.min(t, p.height - h));
+      panel.style.width = w + "px"; panel.style.height = h + "px";
+      panel.style.left = l + "px"; panel.style.top = t + "px";
+    });
+    const end = () => { dir = null; };
+    panel.addEventListener("pointerup", end);
+    panel.addEventListener("pointercancel", end);
+    panel.addEventListener("lostpointercapture", end);
   })();
 
   // ---- neural decoder ----
@@ -227,4 +274,54 @@
     }
     osc.start(); osc.stop(t + 0.1);
   }
+
+  // ---- transmit (operator-triggered): key the message on the radio as CW ----
+  // Same act as pressing PTT — one bounded message, fully operator-controlled. The
+  // backend hands the text to the rig's own keyer, which generates clean CW at the
+  // WPM and drops back to RX. Press again to stop. Bound by the 120 s failsafe + TOT.
+  const txBtn = $("cwTx"), txRow = $("cwTxRow"), txHint = $("cwTxHint");
+  function setTxHint(s) {
+    if (!txRow || !txHint) return;
+    txHint.textContent = s || "";
+    txRow.hidden = !s;
+  }
+  if (txBtn) {
+    txBtn.addEventListener("click", () => {
+      const rc = RC(); if (!rc) return;
+      const st = rc.state() || {};
+      if (st.cw_tx) { rc.send({ action: "cw_stop" }); return; }   // already sending -> stop
+      if (!st.connected) { setTxHint("connect a radio to transmit"); return; }
+      if (!st.cw_tx_ready) { setTxHint("CW key port not found — check the radio's 2nd USB (Standard) COM port"); return; }
+      const m = st.mode_name || "";
+      if (m !== "CW" && m !== "CW-R") { setTxHint("set the radio to CW / CW-R to transmit"); return; }
+      const text = $("cwSend").value;
+      if (!text.trim()) { setTxHint("type a message first"); return; }
+      const wpm = Math.max(5, Math.min(40, +$("cwWpmSet").value || 18));
+      setTxHint("");
+      rc.send({ action: "cw_tx", text, wpm });
+    });
+  }
+  // keep the TX button in step with the live radio state (shown only when the
+  // connected radio supports CW message TX; reflects the transmitting state)
+  function syncTx() {
+    if (!txBtn) return;
+    const st = (RC() && RC().state()) || {};
+    const supported = !!st.has_cw_tx;
+    txBtn.hidden = !supported;
+    if (!supported) { setTxHint(""); return; }
+    const tx = !!st.cw_tx;
+    const ready = !!st.cw_tx_ready;
+    txBtn.textContent = tx ? "■" : "TX";
+    txBtn.classList.toggle("on", tx);
+    txBtn.disabled = !tx && (!st.connected || !ready);
+    txBtn.title = tx ? "Stop transmitting"
+      : !st.connected ? "Connect a radio to transmit"
+      : !ready ? "CW key port not found"
+      : "Transmit this message as CW on the radio";
+    if (tx) setTxHint("on air — sending CW");
+    else if (st.connected && !ready) setTxHint("CW key port not found — check the radio's 2nd USB (Standard) COM port");
+    else if (txHint && (txHint.textContent === "on air — sending CW" || txHint.textContent.indexOf("CW key port") === 0)) setTxHint("");
+  }
+  setInterval(syncTx, 400);
+  syncTx();
 })();

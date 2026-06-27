@@ -23,7 +23,26 @@ import time
 from typing import Optional
 
 from . import civ, profiles
-from .radio import PTT_TIMEOUT, fresh_state, smeter_label
+from .radio import (CW_YAESU_CHARS, PTT_TIMEOUT, cw_duration, cw_elements,
+                    fresh_state, smeter_label)
+from .transport import CwKeyPort, find_sibling_port
+
+# Windows quantises time.sleep to ~15 ms unless the multimedia timer resolution is
+# raised; CW element timing needs ~1 ms, so bracket the keying loop with timeBeginPeriod.
+try:
+    import ctypes
+    _WINMM = ctypes.WinDLL("winmm")
+except Exception:
+    _WINMM = None
+
+
+def _sleep_until(deadline: float, abort) -> None:
+    """Sleep until perf_counter() >= deadline, staying responsive to an abort Event."""
+    while True:
+        rem = deadline - time.perf_counter()
+        if rem <= 0 or abort.is_set():
+            return
+        time.sleep(0.0008 if rem > 0.0008 else rem)
 
 # our mode-button name -> Yaesu MD command code (P2 char). Only the subset the
 # FT-991A profile exposes (all of which also exist in civ.MODE_CODES).
@@ -41,6 +60,11 @@ MD_DECODE = {
 # GT answer P3 (0-6) -> our AGC button (1 FAST / 2 MID / 3 SLOW). The radio
 # reports AUTO as 4/5/6 (auto-fast/mid/slow); fold those onto the base speed.
 AGC_READ = {"0": 0, "1": 1, "2": 2, "3": 3, "4": 1, "5": 2, "6": 3}
+
+# our meter-button key -> Yaesu RM (READ METER) P1 selector. S comes from SM0; the rest
+# are read via RM (value 0-255). FT-991A RM P1: 3=COMP 4=ALC 5=PO 6=SWR 7=ID 8=VDD.
+YAESU_METER = {"PO": "5", "SWR": "6", "ALC": "4", "COMP": "3", "Vd": "8", "Id": "7"}
+YAESU_METER_BY_P1 = {p1: key for key, p1 in YAESU_METER.items()}
 
 # the FT-991A's level sliders all arrive 0-255 (CI-V scale, mapped server-side);
 # each Yaesu level has its own native range, so we scale on the way out and back.
@@ -68,6 +92,10 @@ class YaesuRadio:
         self._poll_thread: Optional[threading.Thread] = None
         self._poll_stop = threading.Event()
         self._ptt_deadline: Optional[float] = None   # stuck-TX failsafe deadline (monotonic)
+        self._cw_deadline: Optional[float] = None    # CW-TX auto-stop deadline (monotonic)
+        self._cw_abort: Optional[threading.Event] = None   # stops an in-progress CW message
+        self._cw_thread: Optional[threading.Thread] = None  # the live keying thread (join + re-entrancy)
+        self._key_port: Optional[CwKeyPort] = None   # 2nd (Standard) USB port for DTR CW keying
         self._rxbuf = ""
         self.on_state = None
         self.on_scope = None          # never used (no scope over CAT)
@@ -94,18 +122,68 @@ class YaesuRadio:
             self._send(cmd)
         if getattr(self.profile, "tot_cat", ""):            # safety: hardware TX time-out backstop
             self._send(self.profile.tot_cat)
+        # CW keying setup. The FT-991A keys CW from the DTR line of its SECOND (Standard)
+        # USB port; CAT runs here on the Enhanced port. So: set menu 033 CAT RTS=DISABLE
+        # (RTS stays free for CAT, host RTS high), menu 060 PC KEYING=DTR, and open the
+        # sibling port DTR-low. When CW is NOT line-keyed, force PC KEYING=OFF so the
+        # control lines can never auto-key the rig.
+        self.state["cw_tx_ready"] = False
+        if getattr(self.profile, "cw_send", "") == "line":
+            self._send("EX0330;")                           # menu 033 CAT RTS = DISABLE
+            # Open the key port DTR-low FIRST so we own the line low, THEN arm PC KEYING.
+            # If the key port can't open, disarm (EX0600) rather than leave the rig armed
+            # to key on a line we don't control.
+            if self._open_key_port(transport):
+                line = getattr(self.profile, "cw_line", "dtr")
+                self._send("EX0603;" if line == "dtr" else "EX0602;")   # menu 060 PC KEYING = DTR / RTS
+            else:
+                self._send("EX0600;")                       # no key port -> PC KEYING = OFF
+        else:
+            self._send("EX0600;")                           # menu 060 PC KEYING = OFF (safe default)
         self._poll_stop.clear()
         self._poll_thread = threading.Thread(target=self._poll, daemon=True, name="yaesu-poll")
         self._poll_thread.start()
         self._emit_state()
+
+    def _open_key_port(self, transport) -> bool:
+        """Open the sibling (Standard) USB port for DTR CW keying — CAT stays on the
+        Enhanced port. Best-effort: if the sibling can't be found/opened, CW TX simply
+        stays unavailable (cw_tx_ready False) rather than failing the connection.
+        Returns True iff the key port is open and ready."""
+        dev = getattr(transport, "port", None)
+        if not dev:
+            return False                                    # sim / LAN: no real serial port
+        sib = find_sibling_port(dev)
+        if not sib:
+            return False                                    # no sibling port -> CW TX unavailable (UI shows it)
+        try:
+            kp = CwKeyPort(sib)
+            kp.open()                                       # opens DTR low (key up)
+            self._key_port = kp
+            self.state["cw_tx_ready"] = True
+            return True
+        except Exception:
+            self._key_port = None
+            return False
 
     def disconnect(self) -> None:
         self._poll_stop.set()
         if self._poll_thread:
             self._poll_thread.join(timeout=1.0)
             self._poll_thread = None
+        if self._cw_abort:
+            self._cw_abort.set()                     # stop any in-progress CW keying
+        t = self._cw_thread                          # wait for the keyer to fully exit BEFORE
+        if t and t.is_alive():                       # closing the port, so no key() races close()
+            t.join(timeout=2.0)
+        self._cw_thread = None
+        if self._key_port:
+            self._key_port.close()                   # DTR low + close the 2nd (keying) port
+            self._key_port = None
         if self._tp:
             try:
+                if getattr(self.profile, "cw_send", "") == "line":
+                    self._send("EX0600;")            # disarm: menu 060 PC KEYING = OFF
                 if self.state.get("ptt"):
                     self._tp.write(b"TX0;")          # never leave the radio keyed
             except Exception:
@@ -116,7 +194,10 @@ class YaesuRadio:
                 pass
             self._tp = None
         self._ptt_deadline = None
+        self._cw_deadline = None
         self.state["ptt"] = False
+        self.state["cw_tx"] = False
+        self.state["cw_tx_ready"] = False
         if self.state.get("connected"):
             self.state["connected"] = False
             self.state["transport"] = None
@@ -158,6 +239,12 @@ class YaesuRadio:
                 changed = False
         elif m.startswith("SM0") and len(m) >= 6 and m[3:6].isdigit():
             self._set_smeter(int(m[3:6]))
+        elif m.startswith("RM") and len(m) >= 6 and m[2:6].isdigit():   # READ METER (TX meters)
+            key = YAESU_METER_BY_P1.get(m[2])
+            if key and self.state.get("meter") == key:
+                self.state["meter_val"] = min(255, int(m[3:6]))
+            else:
+                changed = False
         elif m.startswith("PC") and len(m) >= 5 and m[2:5].isdigit():
             self.state["rfpwr"] = _unscale(int(m[2:5]), self._max_watts())
         elif m.startswith("AG0") and len(m) >= 6 and m[3:6].isdigit():
@@ -239,10 +326,18 @@ class YaesuRadio:
             if (self._ptt_deadline and time.monotonic() >= self._ptt_deadline
                     and self.state.get("ptt")):
                 self.set_ptt(False)
+            # CW-TX indicator auto-clear: the rig's keyer plays a bounded message and
+            # returns to RX on its own; clear the 'transmitting' flag once it's done.
+            if self._cw_deadline and time.monotonic() >= self._cw_deadline:
+                self.stop_cw()
             for cmd in ("FA;", "MD0;", "SM0;", "TX;"):
                 if self._poll_stop.is_set():
                     break
                 self._send(cmd)
+                time.sleep(0.03)
+            mkey = self.state.get("meter", "S")      # selected TX meter (S comes from SM0)
+            if mkey in YAESU_METER and not self._poll_stop.is_set():
+                self._send(f"RM{YAESU_METER[mkey]};")
                 time.sleep(0.03)
             if cyc % 6 == 0:                         # refresh the full panel ~every 2 s
                 c4fm = self.state.get("mode_name") == "C4FM"
@@ -301,6 +396,11 @@ class YaesuRadio:
 
     def set_meter(self, key: str) -> None:
         self.state["meter"] = key
+        # S rides the S-meter (SM0); the others are TX meters read via RM. Reset the bar
+        # and kick an immediate read so it doesn't show a stale value from the last meter.
+        self.state["meter_val"] = self.state.get("smeter", 0) if key == "S" else 0
+        if key in YAESU_METER:
+            self._send(f"RM{YAESU_METER[key]};")
         self._emit_state()
 
     def select_vfo(self, code: int) -> None:
@@ -419,6 +519,72 @@ class YaesuRadio:
         self._ptt_deadline = (time.monotonic() + PTT_TIMEOUT) if tx else None
         self._send("TX1;" if tx else "TX0;")
         self._emit_state()
+
+    # -- CW message transmit (operator-triggered) ----------------------------
+    def send_cw(self, text: str, wpm: int = 18) -> None:
+        """Transmit a typed CW message by host-timed keying of the DTR line on the
+        sibling (Standard) USB port — the proven FT-991A method (N1MM/fldigi/cwdaemon).
+        Operator-triggered, one bounded message per call; the rig shapes the CW envelope."""
+        if getattr(self.profile, "cw_send", "") != "line" or not self.state.get("connected"):
+            return
+        if not (self._key_port and self._key_port.is_open):
+            return                                       # CW key port unavailable
+        if self.state.get("mode_name") not in ("CW", "CW-R"):
+            return                                       # only meaningful in CW (the UI guards too)
+        if self.state.get("cw_tx") or (self._cw_thread and self._cw_thread.is_alive()):
+            return                                       # re-entrancy guard: one message keys at a time
+        msg = "".join(c for c in str(text).upper() if c in CW_YAESU_CHARS)[:80]
+        if not msg.strip():
+            return
+        wpm = max(4, min(60, int(wpm)))
+        abort = threading.Event()
+        self._cw_abort = abort
+        self._cw_deadline = time.monotonic() + cw_duration(msg, wpm) + 3.0   # failsafe backstop
+        self.state["cw_tx"] = True
+        self._emit_state()
+        # Key on a thread: timing is host-driven and must not block the asyncio loop.
+        t = threading.Thread(target=self._cw_key_seq, args=(msg, wpm, abort),
+                             daemon=True, name="yaesu-cw")
+        self._cw_thread = t
+        t.start()
+
+    def _cw_key_seq(self, msg: str, wpm: int, abort: threading.Event) -> None:
+        kp = self._key_port
+        seq = cw_elements(msg, wpm)
+        if _WINMM:
+            try: _WINMM.timeBeginPeriod(1)
+            except Exception: pass
+        try:
+            for down, dur in seq:
+                if abort.is_set() or self._poll_stop.is_set() or not self.state.get("connected"):
+                    break
+                if kp:
+                    kp.key(down)                         # DTR: True = key down (element)
+                _sleep_until(time.perf_counter() + dur, abort)
+        finally:
+            if kp:
+                kp.key(False)                            # ALWAYS end key-up
+            if _WINMM:
+                try: _WINMM.timeEndPeriod(1)
+                except Exception: pass
+            self._cw_deadline = None
+            if self.state.get("cw_tx"):
+                self.state["cw_tx"] = False
+                self._emit_state()
+
+    def _key_up(self) -> None:
+        if self._key_port:
+            self._key_port.key(False)
+
+    def stop_cw(self) -> None:
+        """Stop an in-progress CW message and force the key line up immediately."""
+        if self._cw_abort:
+            self._cw_abort.set()
+        self._key_up()                                   # DTR low (key up)
+        self._cw_deadline = None
+        if self.state.get("cw_tx"):
+            self.state["cw_tx"] = False
+            self._emit_state()
 
     def write_audio(self, pcm: bytes) -> None:
         return                                        # no USB-audio path here

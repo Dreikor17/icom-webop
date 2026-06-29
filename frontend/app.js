@@ -39,6 +39,7 @@
     if (typeof ev.data === "string") {
       const msg = JSON.parse(ev.data);
       if (msg.type === "state") updateState(msg);
+      else if (msg.type === "menu") updateMenu(msg.values || {});
       return;
     }
     const tag = new Uint8Array(ev.data, 0, 1)[0];
@@ -77,7 +78,9 @@
 
   // ---- state -> UI ----
   function updateState(s) {
+    const justConnected = !state.connected && s.connected;
     state = s;
+    if (justConnected) onMenuReconnect();           // drop stale menu cache + refresh open groups
     // dual-watch band readout (MAIN/SUB); single-rx radios show MAIN only
     $("rowSub").style.display = s.dual_watch ? "" : "none";
     if (blanked) {                                  // radio just changed: keep VFOs zeroed until a fresh connect
@@ -533,6 +536,114 @@
 
   // ---- radio profiles (bands/modes/steps render from the selected radio) ----
   function selectedRadio() { return radios.find(p => p.id === $("radioSel").value) || radios[0] || null; }
+  // ---- SET menu (Setup tab): data-driven accordion from currentRadio.menu ----
+  let menuItems = {}, menuCache = {};
+  function renderMenu(p) {
+    const root = $("menuRoot"); if (!root) return;
+    menuItems = {}; menuCache = {}; root.innerHTML = "";
+    const items = (p && p.menu) || [];
+    if (!items.length) { root.hidden = true; return; }
+    root.hidden = false;
+    for (const it of items) menuItems[it.num] = it;
+    const order = [], byGroup = {};
+    for (const it of items) {
+      if (!byGroup[it.group]) { byGroup[it.group] = []; order.push(it.group); }
+      byGroup[it.group].push(it);
+    }
+    const title = document.createElement("div");
+    title.className = "grp-title";
+    title.innerHTML = 'SET MENU <span class="menu-hint">tap a section to read it from the radio</span>';
+    root.appendChild(title);
+    for (const g of order) {
+      const sec = document.createElement("div"); sec.className = "menu-grp"; sec.dataset.group = g;
+      const head = document.createElement("button"); head.className = "menu-ghead"; head.type = "button";
+      head.innerHTML = `<span>${rhEsc(g)}</span><span class="menu-count">${byGroup[g].length}</span>`;
+      const body = document.createElement("div"); body.className = "menu-gbody hide";
+      head.addEventListener("click", () => toggleMenuGroup(g, sec, body, byGroup[g]));
+      sec.appendChild(head); sec.appendChild(body); root.appendChild(sec);
+    }
+  }
+  function toggleMenuGroup(g, sec, body, items) {
+    const open = body.classList.toggle("hide") === false;
+    sec.classList.toggle("open", open);
+    if (!open) return;
+    if (!body._built) { for (const it of items) body.appendChild(buildMenuItem(it)); body._built = true; }
+    if (state.connected) send({ action: "menu_read_group", group: g });   // lazy: read this group only
+  }
+  function buildMenuItem(it) {
+    const row = document.createElement("div");
+    row.className = "menu-item" + (it.critical ? " critical" : "");
+    row.dataset.num = it.num;
+    const name = document.createElement("div"); name.className = "mi-name";
+    name.innerHTML = `<span>${rhEsc(it.name)}${it.critical ? ' <span class="mi-warn" title="connection / transmit-sensitive">&#9888;</span>' : ''}</span>` +
+                     `<span class="mi-num">${String(it.num).padStart(3, "0")}</span>`;
+    if (it.note) name.title = it.note;
+    row.appendChild(name);
+    if (it.readonly) {
+      const ro = document.createElement("span"); ro.className = "mi-ro"; ro.dataset.role = "val"; ro.textContent = "—";
+      row.appendChild(ro);
+    } else if (it.kind === "enum") {
+      const ctl = document.createElement("div"); ctl.className = "mi-ctl";
+      const sel = document.createElement("select"); sel.dataset.role = "input";
+      for (let i = 0; i < it.options.length; i++) {
+        const o = document.createElement("option"); o.value = i; o.textContent = it.options[i];
+        if (/reserved/i.test(it.options[i])) o.disabled = true;   // documented index gap — not selectable
+        sel.appendChild(o);
+      }
+      sel.addEventListener("change", () => writeMenu(it, +sel.value));
+      ctl.appendChild(sel); row.appendChild(ctl);
+    } else {
+      const ctl = document.createElement("div"); ctl.className = "mi-ctl";
+      const r = document.createElement("input"); r.type = "range"; r.dataset.role = "input";
+      r.min = it.min; r.max = it.max; r.step = it.step || 1;
+      r.value = (it.kind === "signed-int") ? Math.max(it.min, Math.min(it.max, 0)) : it.min;
+      const val = document.createElement("span"); val.className = "mi-val"; val.dataset.role = "val"; val.textContent = "—";
+      const show = () => { val.textContent = r.value + (it.unit ? " " + it.unit : ""); };
+      r.addEventListener("input", show);
+      r.addEventListener("change", () => writeMenu(it, +r.value));
+      ctl.appendChild(r); ctl.appendChild(val); row.appendChild(ctl);
+    }
+    if (it.num in menuCache) applyMenuValue(it, row, menuCache[it.num]);
+    return row;
+  }
+  function writeMenu(it, value) {
+    if (!state.connected || (it.critical && !confirm(`Change "${it.name}" (menu ${String(it.num).padStart(3, "0")})?\n` +
+        (it.note || "This is a connection / transmit-sensitive setting.")))) {
+      revertMenuItem(it); return;          // disconnected or cancelled -> restore the real value
+    }
+    send({ action: "menu_write", num: it.num, value: value });
+  }
+  function revertMenuItem(it) {
+    if (it.num in menuCache) refreshMenuItem(it.num);                  // repaint from last known value
+    else if (state.connected) send({ action: "menu_read", num: it.num });  // none cached -> ask the radio
+  }
+  function onMenuReconnect() {
+    menuCache = {};                                                   // stale values from the old session
+    document.querySelectorAll(".menu-grp.open").forEach(sec =>
+      send({ action: "menu_read_group", group: sec.dataset.group }));   // refresh whatever is open
+  }
+  function updateMenu(values) {
+    for (const k in values) { menuCache[+k] = values[k]; refreshMenuItem(+k); }
+  }
+  function refreshMenuItem(num) {
+    const it = menuItems[num]; if (!it || !(num in menuCache)) return;
+    const row = document.querySelector(`.menu-item[data-num="${num}"]`);
+    if (row) applyMenuValue(it, row, menuCache[num]);
+  }
+  function applyMenuValue(it, row, value) {
+    const inp = row.querySelector('[data-role="input"]'), valEl = row.querySelector('[data-role="val"]');
+    if (it.readonly) { if (valEl) valEl.textContent = value; return; }
+    if (it.kind === "enum") {
+      if (inp && document.activeElement !== inp) {
+        const idx = (typeof value === "number") ? value : it.options.indexOf(value);
+        if (idx >= 0) inp.value = idx;
+      }
+    } else {
+      if (inp && document.activeElement !== inp) inp.value = value;
+      if (valEl) valEl.textContent = value + (it.unit ? " " + it.unit : "");
+    }
+  }
+
   async function loadRadios() {
     try {
       const j = await (await fetch("/api/radios")).json();
@@ -568,11 +679,26 @@
       if (s.v === p.default_step) o.selected = true; st.appendChild(o);
     }
     step = p.default_step;
-    // dual-watch + RX-control availability per radio
-    const sub = $("rowSub"); if (sub) sub.style.display = p.dual_watch ? "" : "none";
-    const pa = $("preampBtn"); if (pa) pa.style.display = p.has_preamp ? "" : "none";
-    const at = $("attBtn"); if (at) at.style.display = p.has_att ? "" : "none";
-    const tu = $("tunerBtn"); if (tu) tu.style.display = p.has_tuner ? "" : "none";
+    // capability-driven gating: show only what the radio supports (falls back to flat flags)
+    const cap = p.capabilities || {};
+    const capHas = (k, flat) => (k in cap ? cap[k] : flat);
+    const sub = $("rowSub"); if (sub) sub.style.display = capHas("dual_watch", p.dual_watch) ? "" : "none";
+    const pa = $("preampBtn"); if (pa) pa.style.display = capHas("preamp", p.has_preamp) ? "" : "none";
+    const at = $("attBtn"); if (at) at.style.display = capHas("att", p.has_att) ? "" : "none";
+    const tu = $("tunerBtn"); if (tu) tu.style.display = capHas("tuner", p.has_tuner) ? "" : "none";
+    // VFO A/B select: hidden when the rig has no CAT active-VFO selector (FT-991A); A=B/SWAP stay
+    const vfoSel = capHas("vfo_select", true);
+    document.querySelectorAll('[data-act="vfo"][data-code="0"], [data-act="vfo"][data-code="1"]')
+      .forEach(b => { b.style.display = vfoSel ? "" : "none"; });
+    // RX-DSP + TX-function buttons: only those the rig reports
+    document.querySelectorAll('[data-act="rxfunc"][data-fn]').forEach(b => {
+      const fn = b.dataset.fn;
+      const list = ["nb", "nr", "anotch", "mnotch"].includes(fn) ? cap.rx_dsp : cap.tx_funcs;
+      if (Array.isArray(list)) b.style.display = list.includes(fn) ? "" : "none";
+    });
+    // meter buttons: only the meters the rig supports
+    if (Array.isArray(cap.meters)) document.querySelectorAll('[data-act="meter"][data-meter]')
+      .forEach(b => { b.style.display = cap.meters.includes(b.dataset.meter) ? "" : "none"; });
     // no-scope radios (Yaesu CAT): hide the scope-only controls, show the notice
     const noScope = p.has_scope === false;
     const ns = $("noScope"); if (ns) ns.hidden = !noScope;
@@ -585,6 +711,7 @@
       $("transport").value = "sim";
     }
     updateConnFields();
+    renderMenu(p);
     applyTitles();
   }
   $("radioSel").addEventListener("change", () => {

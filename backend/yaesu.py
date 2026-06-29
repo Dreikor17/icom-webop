@@ -22,7 +22,7 @@ import threading
 import time
 from typing import Optional
 
-from . import civ, profiles
+from . import civ, menu_engine, profiles
 from .radio import (CW_YAESU_CHARS, PTT_TIMEOUT, cw_duration, cw_elements,
                     fresh_state, smeter_label)
 from .transport import CwKeyPort, find_sibling_port
@@ -100,6 +100,9 @@ class YaesuRadio:
         self.on_state = None
         self.on_scope = None          # never used (no scope over CAT)
         self.on_audio = None
+        self.on_menu = None
+        self._menu_index = {}     # num -> MenuItem, built on connect
+        self._menu_vals = {}      # num -> last decoded menu value (cache)
         self.state = fresh_state(self.profile)
         self.state["dual_watch"] = False
 
@@ -112,6 +115,8 @@ class YaesuRadio:
             self.state["dual_watch"] = False
         self._tp = transport
         self._rxbuf = ""
+        self._menu_index = {it.num: it for it in (getattr(self.profile, "menu", None) or [])}
+        self._menu_vals = {}
         transport.start(self._on_bytes)
         self.state["connected"] = True
         self.state["transport"] = transport.name
@@ -227,6 +232,9 @@ class YaesuRadio:
 
     def _parse(self, msg: str) -> None:  # noqa: C901 - flat prefix dispatch, kept readable
         m = msg
+        if m.startswith("EX") and len(m) >= 6 and m[2:5].isdigit():
+            self._handle_ex_reply(m)     # SET-menu reply -> separate menu channel, not state
+            return
         changed = True
         if m.startswith("FA") and len(m) >= 11 and m[2:11].isdigit():
             self._set_freq_state(int(m[2:11]))
@@ -585,6 +593,64 @@ class YaesuRadio:
         if self.state.get("cw_tx"):
             self.state["cw_tx"] = False
             self._emit_state()
+
+    # -- SET menus (Yaesu EX) ------------------------------------------------
+    def get_menu(self, num) -> None:
+        it = self._menu_index.get(int(num))
+        if it is not None:
+            self._send(menu_engine.yaesu_read_cmd(it))
+
+    def read_menu_group(self, group) -> None:
+        """Lazily read one menu category (sent spaced on a thread so it never blocks the
+        WS loop or floods the fast freq/mode/S-meter poll)."""
+        items = [it for it in (getattr(self.profile, "menu", None) or []) if it.group == group]
+        if not items:
+            return
+
+        def _run():
+            for it in items:
+                if self._poll_stop.is_set() or self._tp is None:   # bail if disconnected mid-read
+                    break
+                self._send(menu_engine.yaesu_read_cmd(it))
+                time.sleep(0.03)
+
+        threading.Thread(target=_run, daemon=True, name="yaesu-menu-read").start()
+
+    def set_menu(self, num, value) -> None:
+        it = self._menu_index.get(int(num))
+        if it is None or it.readonly or not self._menu_write_allowed(it):
+            return
+        try:
+            cmd = menu_engine.yaesu_encode(it, value)
+        except menu_engine.MenuError:
+            return
+        self._send(cmd)
+        self._send(menu_engine.yaesu_read_cmd(it))    # confirm-read -> UI reflects the radio
+
+    def _menu_write_allowed(self, item) -> bool:
+        # The app owns CAT RTS (033) + PC KEYING (060) for CW line-keying; a menu write
+        # could leave the rig armed to key on a line we don't control, so block those while
+        # we manage keying. They stay readable; the UI marks them app-managed.
+        if getattr(self.profile, "cw_send", "") == "line" and item.num in (33, 60):
+            return False
+        return True
+
+    def _handle_ex_reply(self, m: str) -> None:
+        it = self._menu_index.get(int(m[2:5]))
+        if it is None:
+            return
+        val = menu_engine.yaesu_decode(it, m)
+        if val is None:
+            return
+        self._menu_vals[it.num] = val
+        self._emit_menu({it.num: val})
+
+    def _emit_menu(self, values: dict) -> None:
+        if self.on_menu:
+            try:
+                self.on_menu(values)
+            except Exception:
+                pass
 
     def write_audio(self, pcm: bytes) -> None:
         return                                        # no USB-audio path here

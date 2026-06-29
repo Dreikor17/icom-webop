@@ -517,6 +517,51 @@ select,input,.baud{
 .sl input[type=range]:focus::-webkit-slider-thumb{background:#fff;box-shadow:0 0 0 3px rgba(56,189,248,.5)}
 .sl input[type=range]:focus::-moz-range-thumb{box-shadow:0 0 0 3px rgba(56,189,248,.5)}
 
+/* ===== tabbed control panels (ported from the compact layout) ===== */
+.controls{columns:auto}                         /* tabs replace the multi-column scroll */
+.controls .tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:8px;
+  position:sticky;top:0;z-index:6;background:var(--surface)}
+.controls .tab{flex:1;text-align:center;padding:9px 2px;font-size:11px;letter-spacing:.5px;
+  color:var(--txt-dim);cursor:pointer;border-bottom:2px solid transparent;user-select:none;
+  -webkit-tap-highlight-color:transparent}
+.controls .tab:hover{color:var(--txt)}
+.controls .tab.on{color:var(--accent);border-bottom-color:var(--accent)}
+.controls .sbody{display:flex;flex-direction:column;gap:8px}
+.controls .panel{display:flex;flex-direction:column;gap:8px}
+.controls .panel.hide{display:none}
+.controls .panel .grp{margin:0}                 /* flex gap handles spacing now */
+.setup-note{font-size:11px;color:var(--txt-dim);line-height:1.5}
+.setup-note b{color:var(--txt)}
+
+/* ===== data-driven SET menu (Setup tab accordion) ===== */
+.menu-root[hidden]{display:none}
+.menu-root>.grp-title{margin-top:10px}
+.menu-hint{font-size:9px;color:var(--txt-dim);font-weight:400;letter-spacing:0;text-transform:none;margin-left:6px}
+.menu-grp{border:1px solid var(--border);border-radius:7px;margin-top:6px;overflow:hidden;background:var(--surface-2)}
+.menu-ghead{width:100%;display:flex;justify-content:space-between;align-items:center;gap:8px;
+  background:none;border:none;color:var(--txt);font-family:var(--font);font-size:12px;font-weight:600;
+  padding:8px 10px;cursor:pointer;text-align:left;-webkit-tap-highlight-color:transparent}
+.menu-ghead:hover{color:var(--accent)}
+.menu-grp.open .menu-ghead{color:var(--accent)}
+.menu-ghead::before{content:"\25B8";color:var(--txt-dim);margin-right:4px;font-size:10px}
+.menu-grp.open .menu-ghead::before{content:"\25BE";color:var(--accent)}
+.menu-ghead .menu-count{font-size:10px;color:var(--txt-dim);font-family:var(--mono)}
+.menu-gbody{padding:2px 10px 8px}
+.menu-gbody.hide{display:none}
+.menu-item{display:flex;flex-direction:column;gap:3px;padding:6px 0;border-top:1px solid var(--border)}
+.menu-item:first-child{border-top:none}
+.mi-name{display:flex;justify-content:space-between;gap:6px;font-size:11px;color:var(--txt)}
+.mi-name .mi-num{color:var(--txt-dim);font-size:9px;font-family:var(--mono)}
+.mi-warn{color:var(--amber)}
+.mi-ctl{display:flex;align-items:center;gap:8px}
+.mi-ctl select{flex:1;min-width:0;font-size:11px;padding:3px 5px}
+.mi-ctl input[type=range]{flex:1;min-width:0;accent-color:var(--accent)}
+.mi-val{font-family:var(--mono);font-size:11px;color:#bfe6ff;min-width:54px;text-align:right}
+.mi-ro{font-family:var(--mono);font-size:11px;color:var(--txt-dim);text-align:right}
+@media (max-width:360px){ .mi-val{min-width:38px;font-size:10px} .mi-ctl{gap:5px} }
+@media (min-width:900px){ .controls .tab{padding:7px 2px;font-size:10px} }
+@media (max-width:680px){ .controls .tab{padding:11px 2px;font-size:12px} }
+
 /* band-plan overlay tooltip */
 .band-tip{position:fixed;z-index:60;max-width:264px;pointer-events:none;
   background:rgba(8,14,24,.97);border:1px solid var(--border);border-radius:7px;

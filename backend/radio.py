@@ -171,6 +171,7 @@ class Radio:
         self.on_scope: Optional[ScopeCb] = None
         self.on_state: Optional[StateCb] = None
         self.on_audio: Optional[Callable[[bytes], None]] = None
+        self.on_menu: Optional[Callable] = None
         self._modsrc_orig: Optional[int] = None     # original DATA OFF MOD (for restore)
         self._lanmod_orig: Optional[int] = None      # original LAN MOD Level (for restore)
         self._mod_managed = False
@@ -187,6 +188,18 @@ class Radio:
     def _b(self, cmd: int, sub: Optional[int] = None, data: bytes = b"") -> bytes:
         """Build a CI-V frame addressed to this radio's CI-V address."""
         return civ.build(cmd, sub, data, radio_addr=self.profile.civ_addr)
+
+    # -- SET menus: not implemented for Icom CI-V yet. The WS dispatch is shared with the
+    # Yaesu path, so these stubs keep it from throwing when an Icom radio is active; the
+    # menu engine's CI-V 1A 05 seam can fill them in later.
+    def get_menu(self, num) -> None:
+        return
+
+    def set_menu(self, num, value) -> None:
+        return
+
+    def read_menu_group(self, group) -> None:
+        return
 
     # -- audio passthrough (LAN only) ---------------------------------------
     def _dispatch_audio(self, pcm: bytes) -> None:

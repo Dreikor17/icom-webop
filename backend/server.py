@@ -140,6 +140,11 @@ class Hub:
         # 'A' tag + channels + sample-rate header, then 16-bit LE mono PCM
         self._push(("bytes", struct.pack("<BBH", 0x41, 1, AUDIO_RATE) + pcm))
 
+    def broadcast_menu(self, values: dict) -> None:
+        # SET-menu values ride a SEPARATE channel so the 154-item table never bloats the
+        # high-rate state frames.
+        self._push(("text", json.dumps({"type": "menu", "values": values})))
+
 
 AUDIO_RATE = 16000
 
@@ -155,6 +160,7 @@ def _bind_radio(r) -> None:
     r.on_state = hub.broadcast_state
     r.on_scope = hub.broadcast_scope
     r.on_audio = hub.broadcast_audio
+    r.on_menu = hub.broadcast_menu
 
 
 _bind_radio(radio)
@@ -365,6 +371,12 @@ def _handle_cmd(cmd: dict) -> None:
             radio.send_cw(str(cmd.get("text", "")), int(cmd.get("wpm", 18)))
         elif action == "cw_stop":
             radio.stop_cw()
+        elif action == "menu_read":
+            radio.get_menu(int(cmd["num"]))
+        elif action == "menu_read_group":
+            radio.read_menu_group(str(cmd["group"]))
+        elif action == "menu_write":
+            radio.set_menu(int(cmd["num"]), cmd["value"])
     except (KeyError, ValueError, TypeError):
         pass
 

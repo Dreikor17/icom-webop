@@ -459,6 +459,8 @@ class YaesuSimTransport(Transport):
         self._t0 = time.time()
         self.freq = profile.default_freq if profile is not None else 14_074_000
         self.mode = "2"            # USB
+        self._menu_index = {it.num: it for it in (getattr(profile, "menu", None) or [])}
+        self._menu_vals = {}       # num -> wire value field (as written), for EX read-back
 
     @property
     def name(self) -> str:
@@ -513,8 +515,28 @@ class YaesuSimTransport(Transport):
             out = "ID0670;"
         elif cmd == "IF":
             out = f"IF001{self.freq:09d}+000000{self.mode}0000000;"
+        elif cmd.startswith("EX") and len(cmd) >= 5 and cmd[2:5].isdigit():     # SET menu
+            num, field = int(cmd[2:5]), cmd[5:]
+            if field:                                  # write -> remember it
+                self._menu_vals[num] = field
+            else:                                      # read -> echo stored value or a default
+                out = f"EX{num:03d}{self._menu_vals.get(num) or self._ex_default(num)};"
         if out and self._on_bytes:
             self._on_bytes(out.encode("ascii"))
+
+    def _ex_default(self, num: int) -> str:
+        """A plausible default value field for an unwritten EX read (sim only)."""
+        from . import menu_engine
+        if num == 87:
+            return "0670"                              # RADIO ID (read-only)
+        it = self._menu_index.get(num)
+        if it is None:
+            return "0"
+        try:
+            val = it.min if it.kind == "int" else 0    # enum -> index 0, signed -> 0
+            return menu_engine.yaesu_encode(it, val)[5:-1]   # strip EX<NNN> and ';'
+        except Exception:
+            return "0"
 
     def stop(self) -> None:
         self._stop.set()

@@ -14,7 +14,7 @@ NO autonomous transmission (PTT relays the operator only). Not optional. <<<
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from typing import Optional
 
 
@@ -24,6 +24,80 @@ class Band:
     lo: int            # band low edge (Hz)
     hi: int            # band high edge (Hz)
     default: int       # frequency the band button tunes to (Hz)
+
+
+@dataclass
+class SerialCfg:
+    baud: int = 115200
+    bits: int = 8
+    parity: str = "N"          # N | E | O
+    stopbits: int = 1          # Icom CI-V = 1, Yaesu CAT = 2
+
+
+@dataclass
+class NetworkCfg:
+    enabled: bool = False
+    control_port: int = 50001  # RS-BA1 UDP: control / serial / audio
+    serial_port: int = 50002
+    audio_port: int = 50003
+
+
+@dataclass
+class AudioCfg:
+    kind: str = "none"         # usb-codec | lan | none
+
+
+@dataclass
+class ScopeCfg:
+    kind: str = "native"       # native (CI-V 27 00) | audio (AF FFT) | none
+
+
+@dataclass
+class Transports:
+    serial: SerialCfg = field(default_factory=SerialCfg)
+    network: NetworkCfg = field(default_factory=NetworkCfg)
+    audio: AudioCfg = field(default_factory=AudioCfg)
+    scope: ScopeCfg = field(default_factory=ScopeCfg)
+
+
+@dataclass
+class Capabilities:
+    """What the radio supports — drives which controls the adaptive UI renders."""
+    preamp: bool = True
+    att: bool = True
+    tuner: bool = False
+    dual_watch: bool = False
+    vfo_select: bool = False   # a CAT active-VFO (A/B) selector. FT-991A: no.
+    vfo_swap: bool = True
+    split: bool = True
+    rit: bool = True
+    duplex: bool = True
+    rx_dsp: list = field(default_factory=list)    # ["nb","nr","anotch","mnotch"]
+    tx_funcs: list = field(default_factory=list)  # ["comp","vox","mon"]
+    tbw: bool = True
+    meters: list = field(default_factory=list)    # ["S","PO","SWR","ALC","COMP","Vd","Id"]
+    cw_tx: bool = False
+    menus: bool = False
+
+
+@dataclass
+class MenuItem:
+    """One radio SET-menu item, fully declarative (see backend/menu_engine.py).
+    `digits` is the fixed value-field width on the wire — a wrong width makes the radio
+    silently ignore the command, so it is the #1 correctness factor."""
+    num: int
+    name: str
+    group: str
+    kind: str = "enum"         # enum | int | signed-int
+    digits: int = 1
+    options: list = field(default_factory=list)   # enum option labels (index = wire value)
+    min: int = 0
+    max: int = 0
+    step: int = 1
+    unit: str = ""
+    readonly: bool = False
+    critical: bool = False     # connection/transmit-sensitive -> UI confirms before write
+    note: str = ""
 
 
 @dataclass
@@ -68,6 +142,35 @@ class RadioProfile:
     # connect_help: radio-side settings to set before connecting; rendered in the
     # "?" popover. [{"title": str, "items": [str, ...]}, ...]
     connect_help: list = field(default_factory=list)
+    # v2 declarative blocks — synthesized from the flat flags above when not given,
+    # so the existing profiles keep working unchanged (see __post_init__).
+    transports: Optional["Transports"] = None
+    capabilities: Optional["Capabilities"] = None
+    menu: list = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.capabilities is None:
+            self.capabilities = Capabilities(
+                preamp=self.has_preamp, att=self.has_att, tuner=self.has_tuner,
+                dual_watch=self.dual_watch,
+                vfo_select=self.protocol != "yaesu",   # FT-991A has no CAT active-VFO selector
+                vfo_swap=True,
+                split=True, rit=True, duplex=True,
+                rx_dsp=["nb", "nr", "anotch", "mnotch"],
+                tx_funcs=["comp", "vox", "mon"], tbw=True,
+                meters=["S", "PO", "SWR", "ALC", "COMP", "Vd", "Id"],
+                cw_tx=bool(self.cw_send), menus=bool(self.menu),
+            )
+        elif self.menu and not self.capabilities.menus:
+            self.capabilities.menus = True
+        if self.transports is None:
+            self.transports = Transports(
+                serial=SerialCfg(baud=self.default_baud,
+                                 stopbits=2 if self.protocol == "yaesu" else 1),
+                network=NetworkCfg(enabled=self.has_network),
+                audio=AudioCfg(kind="lan" if self.has_network else "usb-codec"),
+                scope=ScopeCfg(kind="native" if self.has_scope else "audio"),
+            )
 
     def band_default(self, name: str) -> Optional[int]:
         for b in self.bands:
@@ -91,6 +194,10 @@ class RadioProfile:
             "has_att": self.has_att,
             "has_tuner": self.has_tuner,
             "has_cw_tx": bool(self.cw_send),
+            "transports": asdict(self.transports) if self.transports else None,
+            "capabilities": asdict(self.capabilities) if self.capabilities else None,
+            "menu": [asdict(m) for m in self.menu],
+            "has_menu": bool(self.menu),
         }
 
 
@@ -187,6 +294,8 @@ IC7300MK2 = RadioProfile(
     ],
 )
 
+from .menus.ft991a_menu import FT991A_MENU  # noqa: E402  (after MenuItem is defined above)
+
 # Yaesu FT-991A — all-mode HF/50/144/430 MHz. Yaesu CAT (serial), COM-only: no
 # Ethernet, and NO band scope over CAT (display-only scope), so no waterfall.
 # civ_addr / mod_* are unused by the Yaesu path but the dataclass requires them.
@@ -230,6 +339,7 @@ FT991A = RadioProfile(
     default_step=100,
     # FT-991A has IPO/AMP1 (PA0), a 12 dB RF ATT (RA0), and an internal auto ATU (AC).
     has_preamp=True, has_att=True, has_tuner=True, has_network=False,
+    menu=FT991A_MENU,
     connect_help=[
         {"title": "USB CAT (COM only)", "items": [
             "Install the Yaesu USB driver first. The radio shows TWO COM ports — pick the Enhanced (CAT) port above, not Standard.",

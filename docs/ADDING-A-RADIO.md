@@ -46,14 +46,41 @@ or explicitly marked N/A with a reason. When in doubt, **fail safe** (don't tran
 Items 1–5, 7, 8 ship today; 6 (high‑SWR cutoff) is being added per‑radio. The profile
 fields make every safety feature inherit‑by‑filling for future radios.
 
+## The profile is the declarative source of truth
+
+A `RadioProfile` describes *everything* about reaching a radio and what it can do, and the UI
+renders/gates itself from it:
+
+- **`transports`** (`Transports`) — serial bits/parity/stopbits, RS‑BA1 network + UDP ports,
+  audio kind (`usb-codec`/`lan`/`none`), scope kind (`native`/`audio`/`none`).
+- **`capabilities`** (`Capabilities`) — `preamp`/`att`/`tuner`/`dual_watch`/`vfo_select`/
+  `rx_dsp`/`tx_funcs`/`meters`/… The UI **shows only what `capabilities` reports.**
+- **`menu`** — a declarative `MenuItem` list driving the data‑driven **Setup tab**.
+
+When `transports`/`capabilities` are omitted they are **synthesized from the flat `has_*`
+flags in `__post_init__`**, so you only spell them out where the radio differs (e.g. the
+FT‑991A has no CAT active‑VFO selector → `vfo_select=False`).
+
 ## Steps to add a radio
-1. Add a `RadioProfile` (id, name, make, protocol, address/baud, bands, modes, filters,
-   steps, the `has_*` capability flags, `connect_help`, and the **safety/feature fields** —
-   `tot_civ`/`tot_cat`, SWR meter source, and `cw_send`/`cw_line` for CW message TX).
-2. **Same protocol** as an existing radio → done; the handler is shared.
-3. **New protocol** → a new handler class exposing the server's method surface **and the
-   full safety contract above**.
-4. Register it in `PROFILES`; add any new frontend asset to `server.py`'s versioned‑asset
-   list (or it 404s / serves stale).
-5. Verify on real hardware **RX‑side only** (the maintainer never tests TX by
-   transmitting). The operator verifies any transmit path — PTT, CW send — on the air.
+1. Add a `RadioProfile` (id, name, make, protocol, address/baud, bands, modes, filters, steps,
+   `connect_help`, the **safety/feature fields** — `tot_civ`/`tot_cat`, SWR meter source,
+   `cw_send`/`cw_line`). Add `transports`/`capabilities` only where they differ from the
+   synthesized defaults.
+2. **SET‑menu table (recommended)** — to expose the radio's full menu in the Setup tab, add
+   `backend/menus/<id>_menu.py`: one `MenuItem` per entry (num, name, group,
+   `kind`=enum|int|signed‑int, **`digits` = the manual's exact wire width** — for signed it
+   INCLUDES the sign char, options *or* min/max/step/unit), marking `readonly` and `critical`
+   (connection/transmit‑sensitive) items. Reference it from the profile (`menu=<ID>_MENU`).
+   Compile it from the manufacturer's CAT/menu reference (a research pass over the PDF).
+   **Verify a sample of `digits` on the real radio (read → echo) before trusting the table** —
+   a wrong width is silently ignored by the radio. The shared `backend/menu_engine.py` handles
+   encode/decode (Yaesu `EX` today; the Icom CI‑V `1A 05` encoder is a stubbed seam).
+3. **Same protocol** as an existing radio → done; the handler + menu engine are shared.
+4. **New protocol/make** → a new handler class exposing the server's method surface (incl.
+   `get_menu`/`set_menu`/`read_menu_group`) **and the full safety contract above**, plus a
+   menu‑engine encoder for that protocol.
+5. Register it in `PROFILES`; add any new **frontend** asset to `server.py`'s versioned‑asset
+   list (or it 404s / serves stale). Menu tables are pure backend data — no asset entry needed.
+6. Verify on real hardware **RX‑side only** (the maintainer never tests TX by transmitting).
+   The operator verifies any transmit path — PTT, CW send — and any **critical menu writes**
+   (CAT rate, PTT/port routing, max power) themselves.

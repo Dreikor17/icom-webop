@@ -3,6 +3,32 @@
 All notable changes to **Radio WebOp** are documented here. This project adheres
 to [Semantic Versioning](https://semver.org).
 
+## [0.2.13] — 2026-06-29
+
+Declarative, capability-driven radio profiles and a full data-driven Setup menu — the
+FT-991A now exposes its entire SET menu (001–154) from the web UI.
+
+### Added
+- **Declarative profiles.** Each `RadioProfile` is now the single source of truth for a radio:
+  structured **transports** (CAT/serial bits-parity-stop, RS-BA1 network + ports, audio, scope),
+  a **capability map**, and a declarative **SET-menu table**. When omitted, transports/capabilities
+  are synthesized from the existing flags, so the Icom profiles are unchanged.
+- **Adaptive UI.** The interface shows only the controls a radio reports it supports
+  (capability-driven), and the FT-991A's dead VFO A/B buttons are hidden (it has no CAT VFO
+  selector; A=B / SWAP stay).
+- **FT-991A Setup tab — the full SET menu (001–154).** A grouped accordion of every menu item;
+  each section reads live from the radio when you open it (lazy, so connect stays fast) and writes
+  back with a confirm-read. Connection/transmit-sensitive items (CAT rate, PTT/port routing,
+  per-band max power) are flagged ⚠ and confirmed before writing; **CAT RTS** and **PC KEYING** are
+  shown read-only because the app manages them for CW keying — so the menu can't break PTT/CW.
+- **Menu engine.** A generic `EX` read/write/decode codec (`backend/menu_engine.py`) driven by a
+  per-model table (`backend/menus/<id>_menu.py`), so a radio's menu is data; the Icom CI-V `1A 05`
+  menu path is a stubbed seam for later.
+
+### Notes
+- A few FT-991A menu items the manual rendered ambiguously (RTTY shift/mark frequencies, the reserved
+  index gaps, time zone) are encoded best-effort and flagged for confirmation against real hardware.
+
 ## [0.2.12] — 2026-06-26
 
 CW transmit (both makes), live FT-991A transmit meters, a resizable CW window, and

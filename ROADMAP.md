@@ -1,12 +1,23 @@
 # Roadmap
 
-Radio WebOp is a browser control panel for Icom CI-V transceivers. The protocol
-(CI-V framing, the `27 00` scope, the RS-BA1 LAN transport, audio) is shared;
-each supported radio is a **profile** in `backend/profiles.py` (address, bands,
-modes, filter widths, MOD-Input numbers, power behaviour), so adding a radio is
-just adding a profile.
+Radio WebOp is a browser control panel for ham transceivers (Icom CI-V + Yaesu CAT).
+Each radio is a **declarative `RadioProfile`** in `backend/profiles.py` — transports
+(CAT/serial, RS-BA1 LAN, audio, scope), a **capability map** the UI adapts to, and a
+**SET-menu table** — so adding a radio is mostly data (see `docs/ADDING-A-RADIO.md`).
 
 ## Done
+
+### v0.2.13 — declarative profiles + full Setup menu
+- **Declarative `RadioProfile`** is the single source of truth: structured `transports`
+  (serial/network/audio/scope) + a `capabilities` map (synthesized from the flat flags when
+  omitted). The **UI is adaptive** — it shows only the controls a rig reports (and fixed the
+  FT-991A's dead VFO A/B buttons).
+- **Data-driven Setup tab** — the **FT-991A's full 154-item SET menu** (001–154) as a grouped
+  accordion: each section reads live from the radio on open (lazy), and writes back with a
+  confirm-read. Connection/transmit-sensitive items (CAT rate/RTS, PC keying, PTT/port routing,
+  per-band max power) are flagged and confirmed; CAT-RTS / PC-KEYING are protected so the menu
+  can't break CW/PTT keying. Generic codec in `backend/menu_engine.py`; per-model table in
+  `backend/menus/<id>_menu.py` (Icom CI-V `1A 05` menus are a stubbed seam for later).
 
 ### v0.2.2 — multi-manufacturer + overlay tools
 - **Yaesu FT-991A** — first non-Icom radio (Yaesu CAT over USB, COM-only); profiles
@@ -75,8 +86,8 @@ just adding a profile.
   VBW** controls.
 
 ### UI
-- The **FUNCTION-screen panel** + the **SET-mode menu tree** (M4) — clean modern
-  lists generated from the control map, grouped by the radio's MENU categories.
+- The **FUNCTION-screen panel** — a clean modern panel of the IC-9700 FUNCTION-screen
+  toggles grouped by category. *(The SET-mode menu tree shipped — see Done.)*
 
 ### Platform
 - **More radios** — IC-705, IC-7610, IC-905, IC-7300, etc. (each is just a profile).

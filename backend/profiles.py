@@ -110,7 +110,6 @@ class RadioProfile:
     filter_bw: dict               # mode_name -> {1: hz, 2: hz, 3: hz}
     mod_dataoff: tuple            # CI-V 1A 05 data number for DATA OFF MOD
     lan_mod_level: tuple          # CI-V 1A 05 data number for LAN MOD Level
-    power_zero_bands: list        # freqs to visit to zero per-band power; [] = single set
     default_freq: int             # simulator / initial frequency
     steps: list                   # [(value_hz, label), ...]
     default_step: int
@@ -226,7 +225,6 @@ IC9700 = RadioProfile(
     mod_dataoff=(0x01, 0x15), lan_mod_level=(0x01, 0x14),
     tot_civ=(0x00, 0x41, 0x01),     # TX TOT 0041 = 3 min (no 2-min step; app's 120 s failsafe is the precise limit)
     cw_send="civ17",                # CW message TX via CI-V 17 (semi BK-IN keys it)
-    power_zero_bands=[145_000_000, 435_000_000, 1_295_000_000],
     default_freq=144_200_000,
     steps=[(10, "10 Hz"), (100, "100 Hz"), (1000, "1 kHz"), (5000, "5 kHz"),
            (10000, "10 kHz"), (12500, "12.5 kHz"), (25000, "25 kHz")],
@@ -277,7 +275,6 @@ IC7300MK2 = RadioProfile(
     mod_dataoff=(0x00, 0x84), lan_mod_level=(0x00, 0x83),
     tot_civ=(0x00, 0x32, 0x01),     # TX TOT 0032 = 3 min (closest to 120 s)
     cw_send="civ17",                # CW message TX via CI-V 17 (semi BK-IN keys it)
-    power_zero_bands=[],            # HF RF power is a single setting
     default_freq=14_074_000,
     steps=[(1, "1 Hz"), (10, "10 Hz"), (100, "100 Hz"), (1000, "1 kHz"),
            (5000, "5 kHz"), (9000, "9 kHz"), (10000, "10 kHz")],
@@ -340,7 +337,6 @@ FT991A = RadioProfile(
     # menu 033 CAT RTS=DISABLE + menu 060 PC KEYING=DTR and opens the sibling port DTR-low.
     # RTS keying on the CAT port is forbidden (collides with CAT RTS -> breaks PTT).
     cw_send="line", cw_line="dtr",
-    power_zero_bands=[],
     default_freq=14_074_000,
     steps=[(10, "10 Hz"), (100, "100 Hz"), (1000, "1 kHz"), (2500, "2.5 kHz"),
            (5000, "5 kHz"), (10000, "10 kHz"), (25000, "25 kHz")],

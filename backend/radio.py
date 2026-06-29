@@ -179,7 +179,6 @@ class Radio:
         self._mod_managed = False
         self._ptt_deadline: Optional[float] = None   # PTT failsafe deadline (monotonic)
         self._cw_deadline: Optional[float] = None    # CW-TX auto-stop deadline (monotonic)
-        self._suppress_poll = False                  # mute panel reads during the connect band-cycle
         self._switch_at = 0.0                         # monotonic time of the last MAIN/SUB switch
 
         self.state = self._fresh_state()
@@ -296,8 +295,8 @@ class Radio:
         for sub in (0x02, 0x22, 0x40, 0x41, 0x48, 0x12, 0x57,
                     0x44, 0x45, 0x46, 0x58):             # preamp + RX-DSP + (M3) COMP/MON/VOX/TBW
             self._write(self._b(0x16, sub))
-        for sub in (0x06, 0x12, 0x07, 0x08, 0x0D,
-                    0x0B, 0x0E, 0x15, 0x16):             # RX levels + (M3) MIC/COMP/MON/VOX
+        for sub in (0x01, 0x02, 0x03, 0x0A, 0x06, 0x12, 0x07, 0x08, 0x0D,
+                    0x0B, 0x0E, 0x15, 0x16):             # AF/RF/SQL/PWR + RX-DSP + (M3) MIC/COMP/MON/VOX
             self._write(self._b(0x14, sub))
         self._write(self._b(0x21, 0x00))                 # RIT frequency
         self._write(self._b(0x21, 0x01))                 # RIT on/off
@@ -309,7 +308,6 @@ class Radio:
         self._poll_thread.start()
         self._emit_state()
 
-        threading.Thread(target=self._zero_power, daemon=True, name="civ-pwr0").start()
         if getattr(self.profile, "tot_civ", ()):            # safety: hardware TX time-out backstop
             self._write(self._b(0x1A, 0x05, bytes(self.profile.tot_civ)))
         if getattr(transport, "supports_audio", False):     # LAN: route TX modulation to LAN
@@ -336,34 +334,6 @@ class Radio:
         if self._lanmod_orig == 0:        # otherwise there'd be no audio
             self._write(self._b(0x1A, 0x05, bytes(level) + civ.level_to_bcd(128)))
         self._mod_managed = True
-
-    def _zero_power(self) -> None:
-        """Safety default: start at 0% TX power. RF power is per-band on multi-band
-        radios (e.g. IC-9700), so visit each band; otherwise a single set."""
-        time.sleep(0.5)
-        if not self.state["connected"]:
-            return
-        bands = self.profile.power_zero_bands
-        if not bands:
-            self._write(self._b(0x14, 0x0A, civ.level_to_bcd(0)))
-        else:
-            orig = self.state["freq"]                     # already read at connect
-            self._suppress_poll = True                    # mute panel reads during the band-cycle
-            try:
-                for f in bands:
-                    if not self.state["connected"]:
-                        return
-                    self._write(self._b(0x05, None, civ.freq_to_bcd(f)))
-                    time.sleep(0.1)
-                    self._write(self._b(0x14, 0x0A, civ.level_to_bcd(0)))
-                    time.sleep(0.1)
-                self._write(self._b(0x05, None, civ.freq_to_bcd(orig)))   # restore freq
-                self.state["freq"] = orig
-                self.state[self.state["active_band"]]["freq"] = orig
-            finally:
-                self._suppress_poll = False
-        self.state["rfpwr"] = 0
-        self._emit_state()
 
     def disconnect(self) -> None:
         self._poll_stop.set()
@@ -535,12 +505,12 @@ class Radio:
             self._write(self._b(0x15, 0x02))             # S-meter (active band)
             if self.state["meter"] != "S":               # selected TX meter for the big bar
                 self._write(self._b(0x15, civ.METER_SUBS[self.state["meter"]]))
-            if tick % 8 == 0 and not self._suppress_poll:   # ~1.2s: catch panel changes
+            if tick % 8 == 0:                            # ~1.2s: catch panel changes
                 self._write(self._b(0x03))
                 self._write(self._b(0x04))
                 if self.state["dual_watch"]:             # is MAIN the operating band?
                     self._write(self._b(0x07, 0xD2, b"\x00"))
-            if tick % 40 == 0 and not self._suppress_poll:   # ~6s: re-sync the whole panel from the radio
+            if tick % 40 == 0:                           # ~6s: re-sync the whole panel from the radio
                 self._read_panel()
             tick += 1
             time.sleep(0.15)
@@ -552,7 +522,7 @@ class Radio:
         for sub in (0x02, 0x50, 0x22, 0x40, 0x41, 0x48,  # preamp, lock, NB, NR, A/M-notch,
                     0x12, 0x57, 0x44, 0x45, 0x46, 0x58):  # AGC, notch-W, COMP, MON, VOX, TBW
             self._write(self._b(0x16, sub))
-        for sub in (0x06, 0x12, 0x07, 0x08, 0x0D,        # NR/NB level, twin PBT, M-notch pos,
+        for sub in (0x01, 0x02, 0x03, 0x0A, 0x06, 0x12, 0x07, 0x08, 0x0D,  # AF/RF/SQL/PWR + NR/NB/PBT/notch,
                     0x0B, 0x0E, 0x15, 0x16):              # MIC, COMP, MON, VOX level
             self._write(self._b(0x14, sub))
         self._write(self._b(0x21, 0x00))                 # RIT frequency

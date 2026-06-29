@@ -14,6 +14,8 @@ Each radio is a **declarative `RadioProfile`** in `backend/profiles.py` — tran
 - **FT-991A preamp IPO / AMP1 / AMP2** (preamp states declared per radio via `preamp_labels`).
 - **Antenna-tuner TUNE** action (operator-triggered ATU tuning cycle) beside the tuner in/out
   toggle, plus a **waterfall "click or drag to tune"** hint.
+- **RF power read, not forced, on connect** — the panel mirrors the rig's actual power (and
+  AF/RF/SQL) instead of zeroing it; the Icom per-band connect power-zero is removed.
 
 ### v0.2.13 — declarative profiles + full Setup menu
 - **Declarative `RadioProfile`** is the single source of truth: structured `transports`

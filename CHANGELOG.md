@@ -20,6 +20,13 @@ antenna-tuner TUNE action, and a waterfall tune hint.
   by the radio's own cycle and the hardware TX time-out. Shown only on radios with an internal ATU.
 - **Waterfall "click or drag to tune" hint** along the bottom of the scope.
 
+### Changed
+- **RF power is read, not forced, on connect.** The panel now **reads and displays** each radio's
+  actual RF power (plus AF/RF/SQL) on connect, instead of forcing power to 0 %. The Icom path used
+  to zero power (per-band on the IC-9700) on connect — that's removed; it now reads `14 0A` like the
+  FT-991A already reads `PC`. Transmit stays guarded by operator-only keying, the 120 s PTT failsafe,
+  the hardware TOT, and unkey-on-disconnect.
+
 ### Notes
 - The IC-7300MK2 menu was compiled from its CI-V Reference Guide; verify it against the radio
   (RX-safe reads) — a few level items had an ambiguous range in the source and were set to max 255.

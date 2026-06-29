@@ -39,12 +39,17 @@ or explicitly marked N/A with a reason. When in doubt, **fail safe** (don't tran
    (FT‑991A keyer playback).
 6. **High‑SWR cutoff + warning.** While keyed, read the SWR meter; warn in the UI and
    auto‑unkey above the threshold to protect the PA. Reads + a protective un‑key only.
-7. **Safe power on connect.** RF power defaults to 0 % on connect.
+7. **Power read — not forced — on connect.** The app **reads and displays** the radio's
+   current RF power (and AF/RF/SQL) on connect so the panel mirrors the rig; it does **not**
+   zero power. (Earlier builds forced 0 % on connect — removed by request so the operator's
+   real settings show. Transmit stays guarded by operator‑only keying, the 120 s PTT
+   failsafe, the hardware TOT, and unkey‑on‑disconnect.)
 8. **Unkey + restore on disconnect.** Never leave the radio keyed; restore any borrowed
    state (e.g. the MOD source on the Icom LAN path).
 
-Items 1–5, 7, 8 ship today; 6 (high‑SWR cutoff) is being added per‑radio. The profile
-fields make every safety feature inherit‑by‑filling for future radios.
+Items 1–5, 8 ship today; 6 (high‑SWR cutoff) is being added per‑radio; 7 is read‑and‑display
+(power is no longer forced to 0). The profile fields make every safety feature
+inherit‑by‑filling for future radios.
 
 ## The profile is the declarative source of truth
 

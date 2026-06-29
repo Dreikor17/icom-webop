@@ -489,6 +489,8 @@ class YaesuSimTransport(Transport):
         self.mode = "2"            # USB
         self._menu_index = {it.num: it for it in (getattr(profile, "menu", None) or [])}
         self._menu_vals = {}       # num -> wire value field (as written), for EX read-back
+        self._levels = {"PC": "025", "AG0": "140", "RG0": "200",   # power(W)/AF/RF: so the
+                        "SQ0": "015", "MG": "050", "GT0": "2"}      # sim reports real levels
 
     @property
     def name(self) -> str:
@@ -543,6 +545,12 @@ class YaesuSimTransport(Transport):
             out = "ID0670;"
         elif cmd == "IF":
             out = f"IF001{self.freq:09d}+000000{self.mode}0000000;"
+        elif cmd in self._levels:                  # level read: PC/AG0/RG0/SQ0/MG/GT0
+            out = f"{cmd}{self._levels[cmd]};"
+        elif any(cmd.startswith(k) and cmd[len(k):].isdigit() for k in self._levels):
+            for k in self._levels:                 # level set -> remember (sim)
+                if cmd.startswith(k) and cmd[len(k):].isdigit():
+                    self._levels[k] = cmd[len(k):]; break
         elif cmd.startswith("EX") and len(cmd) >= 5 and cmd[2:5].isdigit():     # SET menu
             num, field = int(cmd[2:5]), cmd[5:]
             if field:                                  # write -> remember it

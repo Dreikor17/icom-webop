@@ -14,7 +14,7 @@ import threading
 import time
 from typing import Callable, Optional
 
-from . import civ, profiles
+from . import civ, menu_engine, profiles
 from .profiles import RadioProfile
 from .transport import Transport
 
@@ -172,6 +172,8 @@ class Radio:
         self.on_state: Optional[StateCb] = None
         self.on_audio: Optional[Callable[[bytes], None]] = None
         self.on_menu: Optional[Callable] = None
+        self._menu_index = {}     # num (1A 05 data number) -> MenuItem, built on connect
+        self._menu_vals = {}      # num -> last decoded menu value (cache)
         self._modsrc_orig: Optional[int] = None     # original DATA OFF MOD (for restore)
         self._lanmod_orig: Optional[int] = None      # original LAN MOD Level (for restore)
         self._mod_managed = False
@@ -189,17 +191,66 @@ class Radio:
         """Build a CI-V frame addressed to this radio's CI-V address."""
         return civ.build(cmd, sub, data, radio_addr=self.profile.civ_addr)
 
-    # -- SET menus: not implemented for Icom CI-V yet. The WS dispatch is shared with the
-    # Yaesu path, so these stubs keep it from throwing when an Icom radio is active; the
-    # menu engine's CI-V 1A 05 seam can fill them in later.
+    # -- SET menus (Icom CI-V 1A 05 <data-number>) ---------------------------
     def get_menu(self, num) -> None:
-        return
+        it = self._menu_index.get(int(num))
+        if it is not None:
+            self._write(self._b(0x1A, 0x05, menu_engine.civ_read_data(it)))
 
     def set_menu(self, num, value) -> None:
-        return
+        it = self._menu_index.get(int(num))
+        if it is None or it.readonly or not self._menu_write_allowed(it):
+            return
+        try:
+            data = menu_engine.civ_write_data(it, value)
+        except menu_engine.MenuError:
+            return
+        self._write(self._b(0x1A, 0x05, data))
+        self.get_menu(num)                                # confirm-read -> UI reflects the radio
+
+    def _menu_write_allowed(self, item) -> bool:
+        # While the app owns the MOD source on LAN, block menu writes to the MOD data numbers
+        # (DATA OFF MOD / LAN MOD Level) so the disconnect-restore can't fight the user's change.
+        if self._mod_managed:
+            def _num(dn):
+                return ((dn[0] >> 4) * 1000 + (dn[0] & 0xF) * 100
+                        + (dn[1] >> 4) * 10 + (dn[1] & 0xF)) if dn else -1
+            if item.num in (_num(self.profile.mod_dataoff), _num(self.profile.lan_mod_level)):
+                return False
+        return True
 
     def read_menu_group(self, group) -> None:
-        return
+        """Lazily read one menu category (spaced on a thread; bails on disconnect)."""
+        items = [it for it in (getattr(self.profile, "menu", None) or []) if it.group == group]
+        if not items:
+            return
+
+        def _run():
+            for it in items:
+                if self._poll_stop.is_set() or self._tp is None:
+                    break
+                self._write(self._b(0x1A, 0x05, menu_engine.civ_read_data(it)))
+                time.sleep(0.03)
+
+        threading.Thread(target=_run, daemon=True, name="civ-menu-read").start()
+
+    def _handle_menu_reply(self, d: bytes) -> None:
+        num = (d[0] >> 4) * 1000 + (d[0] & 0xF) * 100 + (d[1] >> 4) * 10 + (d[1] & 0xF)
+        it = self._menu_index.get(num)
+        if it is None:
+            return
+        val = menu_engine.civ_decode(it, d)
+        if val is None:
+            return
+        self._menu_vals[num] = val
+        self._emit_menu({num: val})
+
+    def _emit_menu(self, values: dict) -> None:
+        if self.on_menu:
+            try:
+                self.on_menu(values)
+            except Exception:
+                pass
 
     # -- audio passthrough (LAN only) ---------------------------------------
     def _dispatch_audio(self, pcm: bytes) -> None:
@@ -217,6 +268,8 @@ class Radio:
             self.profile = profile
             self.state = self._fresh_state()
         self._tp = transport
+        self._menu_index = {it.num: it for it in (getattr(self.profile, "menu", None) or [])}
+        self._menu_vals = {}
         self._reader = civ.FrameReader()
         self._scope = civ.ScopeAssembler()
         if getattr(transport, "supports_audio", False):
@@ -441,13 +494,14 @@ class Radio:
             raw = self._payload(s, d)
             if raw:
                 self.state["offset"] = civ.offset_from_bcd(raw); changed = True
-        elif c == 0x1A and s == 0x05 and len(d) >= 3:    # MOD Input read response
+        elif c == 0x1A and s == 0x05 and len(d) >= 2:    # 1A 05 <data-number> read response
             dataoff, level = self.profile.mod_dataoff, self.profile.lan_mod_level
-            if d[0] == dataoff[0] and d[1] == dataoff[1] and self._modsrc_orig is None:
-                self._modsrc_orig = d[2]
-            elif (d[0] == level[0] and d[1] == level[1]
-                  and len(d) >= 4 and self._lanmod_orig is None):
+            if len(d) >= 3 and d[0] == dataoff[0] and d[1] == dataoff[1] and self._modsrc_orig is None:
+                self._modsrc_orig = d[2]                  # MOD Input source (for restore)
+            elif (len(d) >= 4 and d[0] == level[0] and d[1] == level[1]
+                  and self._lanmod_orig is None):
                 self._lanmod_orig = civ.bcd_to_level(d[2:4])
+            self._handle_menu_reply(d)                    # SET-menu items -> separate menu channel
         if changed:
             self._recalc_filter_bw()
             self._emit_state()
@@ -557,8 +611,8 @@ class Radio:
             self._write(self._b(0x15, civ.METER_SUBS[key]))
             self._emit_state()
 
-    def set_preamp(self, on: bool) -> None:
-        v = 1 if on else 0
+    def set_preamp(self, level) -> None:
+        v = max(0, min(3, int(level)))               # 16 02: 0 off / 1 P.AMP / 2 EXT / 3 P.AMP+EXT
         self.state["preamp"] = v
         self._write(self._b(0x16, 0x02, bytes([v])))
         self._emit_state()
@@ -578,6 +632,9 @@ class Radio:
         # Icom internal ATU isn't wired yet; has_tuner is False for the Icom profiles
         # so the button is hidden. No-op keeps the shared action dispatch safe.
         return
+
+    def tune_atu(self) -> None:
+        return                                            # Icom ATU not wired (has_tuner False)
 
     def set_level(self, sub: int, value: int) -> None:
         key = LEVEL_KEYS.get(sub)

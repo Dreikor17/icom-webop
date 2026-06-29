@@ -212,6 +212,10 @@ class SimTransport(Transport):
                       0x44: 0, 0x45: 0, 0x46: 0, 0x58: 0}          # COMP, MON, VOX, TBW (M3)
         self.rit_on = 0; self.rit_freq = 0
         self.split = 0; self.duplex = 0; self.offset = 600000
+        from . import menu_engine
+        self._menu = {}            # (dn_hi, dn_lo) -> stored value bytes
+        self._menu_index = {tuple(menu_engine.civ_datanum(it.num)): it
+                            for it in (getattr(profile, "menu", None) or [])}
 
     @property
     def name(self) -> str:
@@ -341,6 +345,8 @@ class SimTransport(Transport):
                 self._ok()
             elif c == 0x27:                                 # scope control
                 self._scope_cmd(s, d)
+            elif c == 0x1A and s == 0x05:                   # SET-menu (1A 05 <data-number>)
+                self._menu_cmd(d)
             else:
                 self._ok()
 
@@ -369,6 +375,28 @@ class SimTransport(Transport):
         if sub == 0x02:        # S-meter, breathe around S5-S7
             return int(70 + 35 * (0.5 + 0.5 * math.sin(t * 0.7)))
         return 0
+
+    def _menu_cmd(self, d: bytes) -> None:
+        """SET-menu 1A 05: d = data-number(2) [+ value for a write]."""
+        if len(d) < 2:
+            self._ok(); return
+        key = (d[0], d[1])
+        if len(d) > 2:                                  # write: store the value bytes
+            self._menu[key] = bytes(d[2:]); self._ok()
+        else:                                           # read: echo stored value or a default
+            val = self._menu.get(key) or self._menu_default(d)
+            self._emit(0x1A, 0x05, bytes([d[0], d[1]]) + val)
+
+    def _menu_default(self, d: bytes) -> bytes:
+        it = self._menu_index.get((d[0], d[1]))
+        if it is None:
+            return b"\x00"
+        try:
+            from . import menu_engine
+            val = it.min if it.kind == "int" else 0
+            return menu_engine.civ_write_data(it, val)[2:]   # strip the data number
+        except Exception:
+            return b"\x00"
 
     # -- scope generation ----------------------------------------------------
     def _loop(self) -> None:

@@ -130,3 +130,84 @@ def _clamp_snap(item, v: int) -> int:
         if lo or hi:
             v = max(lo, min(hi, v))
     return v
+
+
+# ---- Icom CI-V (1A 05 <data-number>) ---------------------------------------
+# Icom SET-mode menus are addressed by a 4-digit data number carried as 2 BCD bytes
+# after `1A 05`; the value follows as BCD. `MenuItem.num` IS the data number (e.g.
+# num=321 -> "0321" -> 03 21). `MenuItem.digits` is the value's BCD digit count
+# (2 = one byte, 4 = two bytes). enum = 1 BCD byte index; signed = a sign byte
+# (00=+, 01=-) then the magnitude BCD. The Radio handler frames these with `1A 05`.
+def civ_datanum(num) -> bytes:
+    n = int(num)
+    return bytes([(((n // 1000) % 10) << 4) | ((n // 100) % 10),
+                  (((n // 10) % 10) << 4) | (n % 10)])
+
+
+def civ_read_data(item) -> bytes:
+    """Data area for the `1A 05 <dn>` READ frame (just the data number)."""
+    return civ_datanum(item.num)
+
+
+def civ_write_data(item, value) -> bytes:
+    """Data area for the `1A 05 <dn> <value>` WRITE frame."""
+    if getattr(item, "readonly", False):
+        raise MenuError(f"menu {item.num} ({item.name}) is read-only")
+    return civ_datanum(item.num) + _civ_value_bytes(item, value)
+
+
+def civ_decode(item, frame_data: bytes):
+    """Decode a `1A 05` reply's data area: data number (2 bytes) + value bytes."""
+    if frame_data is None or len(frame_data) < 2:
+        return None
+    return _civ_decode_value(item, frame_data[2:])
+
+
+def _civ_value_bytes(item, value) -> bytes:
+    if item.kind == "enum":
+        return bytes([_bcd1(_enum_index(item, value))])
+    if item.kind == "int":
+        return _bcd(_clamp_snap(item, int(value)), item.digits)
+    if item.kind == "signed-int":
+        v = _clamp_snap(item, int(value))
+        return bytes([1 if v < 0 else 0]) + _bcd(abs(v), item.digits)
+    raise MenuError(f"menu {item.num}: unknown kind {item.kind!r}")
+
+
+def _civ_decode_value(item, val: bytes):
+    if not val:
+        return None
+    if item.kind == "enum":
+        idx = _unbcd1(val[0])
+        return item.options[idx] if 0 <= idx < len(item.options) else idx
+    if item.kind == "signed-int":
+        return (-1 if val[0] == 1 else 1) * _unbcd(val[1:])
+    return _unbcd(val)
+
+
+def _bcd1(v) -> int:
+    """One byte of packed BCD for a 0-99 value."""
+    v = int(v) % 100
+    return ((v // 10) << 4) | (v % 10)
+
+
+def _unbcd1(b: int) -> int:
+    return ((b >> 4) & 0x0F) * 10 + (b & 0x0F)
+
+
+def _bcd(v, digits) -> bytes:
+    """Big-endian packed BCD; byte count = ceil(digits/2)."""
+    nbytes = max(1, (int(digits) + 1) // 2)
+    v = int(v)
+    out = bytearray(nbytes)
+    for i in range(nbytes - 1, -1, -1):
+        out[i] = _bcd1(v % 100)
+        v //= 100
+    return bytes(out)
+
+
+def _unbcd(data: bytes) -> int:
+    n = 0
+    for b in data:
+        n = n * 100 + _unbcd1(b)
+    return n

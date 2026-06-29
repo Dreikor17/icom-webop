@@ -342,13 +342,15 @@ def _handle_cmd(cmd: dict) -> None:
         elif action == "set_meter":
             radio.set_meter(str(cmd["meter"]))
         elif action == "preamp":
-            radio.set_preamp(bool(cmd["on"]))
+            radio.set_preamp(int(cmd["level"]) if "level" in cmd else (1 if cmd.get("on") else 0))
         elif action == "att":
             radio.set_att(bool(cmd["on"]))
         elif action == "lock":
             radio.set_lock(bool(cmd["on"]))
         elif action == "tuner":
             radio.set_tuner(bool(cmd["on"]))
+        elif action == "tune_atu":
+            radio.tune_atu()
         elif action == "rx_func":
             radio.set_rx_func(str(cmd["name"]), bool(cmd["on"]))
         elif action == "agc":

@@ -9,7 +9,7 @@
 <body>
 
 <header class="topbar">
-  <div class="brand"><span class="mk">RADIO</span> WebOp<span class="model" id="modelLabel"></span><span class="ver">v0.2.13</span><a class="ver-update" id="verUpdate" hidden target="_blank" rel="noopener"></a>
+  <div class="brand"><span class="mk">RADIO</span> WebOp<span class="model" id="modelLabel"></span><span class="ver">v0.2.14</span><a class="ver-update" id="verUpdate" hidden target="_blank" rel="noopener"></a>
     <button id="themeBtn" class="theme-btn" title="Day / night theme">🌙</button>
   </div>
   <div class="conn open" id="conn">
@@ -120,6 +120,7 @@
       </div>
       <div class="no-scope" id="noScope" hidden>No band scope over CAT — turn on RX audio for an audio spectrum, or just use frequency &amp; mode control</div>
       <div class="af-badge" id="afBadge" hidden>♪ audio spectrum (RX passband)</div>
+      <div class="scope-tunehint" id="scopeTuneHint">click or drag the waterfall to tune</div>
     </div>
 
     <div class="scope-ctl">
@@ -241,7 +242,8 @@
         <button class="key tog" data-act="toggle" data-fn="preamp" id="preampBtn">P.AMP</button>
         <button class="key tog" data-act="toggle" data-fn="att" id="attBtn">ATT</button>
         <button class="key tog" data-act="toggle" data-fn="lock" id="lockBtn">LOCK</button>
-        <button class="key tog" data-act="toggle" data-fn="tuner" id="tunerBtn" title="Antenna tuner in/out of line (hold the radio's TUNE button to run an auto-tune cycle — that transmits)">TUNER</button>
+        <button class="key tog" data-act="toggle" data-fn="tuner" id="tunerBtn" title="Antenna tuner in / out of line">TUNER</button>
+        <button class="key" data-act="tune_atu" id="tuneBtn" title="Start an antenna-tuner cycle — transmits a brief carrier to tune">TUNE</button>
       </div>
     </div>
     </div><!-- /rx -->

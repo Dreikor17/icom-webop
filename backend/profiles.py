@@ -142,6 +142,7 @@ class RadioProfile:
     # connect_help: radio-side settings to set before connecting; rendered in the
     # "?" popover. [{"title": str, "items": [str, ...]}, ...]
     connect_help: list = field(default_factory=list)
+    preamp_labels: list = field(default_factory=lambda: ["OFF", "P.AMP"])  # preamp states (index = code)
     # v2 declarative blocks — synthesized from the flat flags above when not given,
     # so the existing profiles keep working unchanged (see __post_init__).
     transports: Optional["Transports"] = None
@@ -193,6 +194,7 @@ class RadioProfile:
             "has_preamp": self.has_preamp,
             "has_att": self.has_att,
             "has_tuner": self.has_tuner,
+            "preamp_labels": self.preamp_labels,
             "has_cw_tx": bool(self.cw_send),
             "transports": asdict(self.transports) if self.transports else None,
             "capabilities": asdict(self.capabilities) if self.capabilities else None,
@@ -204,6 +206,8 @@ class RadioProfile:
 _SSB = {1: 3000, 2: 2400, 3: 1800}
 _CW = {1: 1200, 2: 500, 3: 250}
 _RTTY = {1: 2400, 2: 500, 3: 250}
+
+from .menus.ic9700_menu import IC9700_MENU  # noqa: E402  (after MenuItem is defined above)
 
 IC9700 = RadioProfile(
     id="ic9700", name="IC-9700", civ_addr=0xA2,
@@ -228,6 +232,7 @@ IC9700 = RadioProfile(
            (10000, "10 kHz"), (12500, "12.5 kHz"), (25000, "25 kHz")],
     default_step=25000,
     dual_watch=True,                # MAIN + SUB receivers
+    menu=IC9700_MENU,
     connect_help=[
         {"title": "USB (CI-V)", "items": [
             "Install Icom's USB driver, then connect [USB] to the PC and pick its COM port above.",
@@ -245,6 +250,8 @@ IC9700 = RadioProfile(
         ]},
     ],
 )
+
+from .menus.ic7300mk2_menu import IC7300MK2_MENU  # noqa: E402  (after MenuItem is defined above)
 
 IC7300MK2 = RadioProfile(
     id="ic7300mk2", name="IC-7300MK2", civ_addr=0xB6,
@@ -275,6 +282,7 @@ IC7300MK2 = RadioProfile(
     steps=[(1, "1 Hz"), (10, "10 Hz"), (100, "100 Hz"), (1000, "1 kHz"),
            (5000, "5 kHz"), (9000, "9 kHz"), (10000, "10 kHz")],
     default_step=100,
+    menu=IC7300MK2_MENU,
     connect_help=[
         {"title": "USB (CI-V)", "items": [
             "Install Icom's USB driver, then connect [USB] to the PC and pick its COM port above.",
@@ -339,6 +347,7 @@ FT991A = RadioProfile(
     default_step=100,
     # FT-991A has IPO/AMP1 (PA0), a 12 dB RF ATT (RA0), and an internal auto ATU (AC).
     has_preamp=True, has_att=True, has_tuner=True, has_network=False,
+    preamp_labels=["IPO", "AMP1", "AMP2"],
     menu=FT991A_MENU,
     connect_help=[
         {"title": "USB CAT (COM only)", "items": [

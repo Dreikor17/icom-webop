@@ -3,6 +3,27 @@
 All notable changes to **Radio WebOp** are documented here. This project adheres
 to [Semantic Versioning](https://semver.org).
 
+## [0.2.14] — 2026-06-29
+
+Icom CI-V Setup menus (IC-9700 + IC-7300MK2), the FT-991A preamp's third state, an
+antenna-tuner TUNE action, and a waterfall tune hint.
+
+### Added
+- **Icom CI-V Setup menus.** The data-driven Setup tab now works for Icom radios over CI-V
+  `1A 05` (the menu engine generalized from Yaesu CAT `EX`): the **IC-9700** (54 items) and the
+  full **IC-7300MK2** (176 items) get grouped, lazily-read, write-through menus with the same
+  critical-item confirms. Per-model tables live in `backend/menus/<id>_menu.py`.
+- **FT-991A preamp now cycles IPO / AMP1 / AMP2** (was only IPO ↔ AMP1). Preamp states are
+  declared per radio (`preamp_labels`) and the button shows the current state.
+- **Antenna-tuner TUNE.** Alongside the tuner in/out toggle, a **TUNE** button starts an ATU
+  tuning cycle (FT-991A `AC002`) — operator-triggered, the same transmit boundary as PTT, bounded
+  by the radio's own cycle and the hardware TX time-out. Shown only on radios with an internal ATU.
+- **Waterfall "click or drag to tune" hint** along the bottom of the scope.
+
+### Notes
+- The IC-7300MK2 menu was compiled from its CI-V Reference Guide; verify it against the radio
+  (RX-safe reads) — a few level items had an ambiguous range in the source and were set to max 255.
+
 ## [0.2.13] — 2026-06-29
 
 Declarative, capability-driven radio profiles and a full data-driven Setup menu — the

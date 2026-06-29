@@ -49,4 +49,26 @@ try:
 except me.MenuError:
     C("RADIO_ID readonly raises", "MenuError", "MenuError")
 
+# ---- Icom CI-V (1A 05 <data-number>) ----
+TOT = MenuItem(41, "Time-Out Timer", "TX", kind="enum", digits=2, options=["OFF", "3min", "5min", "10min", "20min", "30min"])
+SIDETONE = MenuItem(221, "Side Tone Level", "CW", kind="int", digits=4, min=0, max=255)
+PHONES = MenuItem(97, "Phones Level", "Audio", kind="signed-int", digits=2, min=-15, max=15, unit="dB")
+
+C("civ_datanum 0321", me.civ_datanum(321), bytes([0x03, 0x21]))
+C("civ_datanum 0041", me.civ_datanum(41), bytes([0x00, 0x41]))
+C("civ_datanum 0221", me.civ_datanum(221), bytes([0x02, 0x21]))
+C("civ TOT write 5min", me.civ_write_data(TOT, "5min"), bytes([0x00, 0x41, 0x02]))
+C("civ TOT decode", me.civ_decode(TOT, bytes([0x00, 0x41, 0x02])), "5min")
+C("civ sidetone 255", me.civ_write_data(SIDETONE, 255), bytes([0x02, 0x21, 0x02, 0x55]))
+C("civ sidetone 100", me.civ_write_data(SIDETONE, 100), bytes([0x02, 0x21, 0x01, 0x00]))
+C("civ sidetone decode", me.civ_decode(SIDETONE, bytes([0x02, 0x21, 0x02, 0x55])), 255)
+C("civ phones -5", me.civ_write_data(PHONES, -5), bytes([0x00, 0x97, 0x01, 0x05]))
+C("civ phones +10", me.civ_write_data(PHONES, 10), bytes([0x00, 0x97, 0x00, 0x10]))
+C("civ phones decode -5", me.civ_decode(PHONES, bytes([0x00, 0x97, 0x01, 0x05])), -5)
+try:
+    me.civ_write_data(MenuItem(87, "ID", "Info", kind="int", digits=4, readonly=True), 0)
+    C("civ readonly raises", "no-raise", "MenuError")
+except me.MenuError:
+    C("civ readonly raises", "MenuError", "MenuError")
+
 print("\nALL PASS" if _ok else "\nSOME FAILED")

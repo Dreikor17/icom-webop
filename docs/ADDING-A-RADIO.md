@@ -74,7 +74,7 @@ FT‑991A has no CAT active‑VFO selector → `vfo_select=False`).
    Compile it from the manufacturer's CAT/menu reference (a research pass over the PDF).
    **Verify a sample of `digits` on the real radio (read → echo) before trusting the table** —
    a wrong width is silently ignored by the radio. The shared `backend/menu_engine.py` handles
-   encode/decode (Yaesu `EX` today; the Icom CI‑V `1A 05` encoder is a stubbed seam).
+   encode/decode (Yaesu `EX` today; the Icom CI‑V `1A 05` encoder is implemented too — see ic9700_menu.py / ic7300mk2_menu.py).
 3. **Same protocol** as an existing radio → done; the handler + menu engine are shared.
 4. **New protocol/make** → a new handler class exposing the server's method surface (incl.
    `get_menu`/`set_menu`/`read_menu_group`) **and the full safety contract above**, plus a

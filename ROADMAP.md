@@ -7,6 +7,14 @@ Each radio is a **declarative `RadioProfile`** in `backend/profiles.py` — tran
 
 ## Done
 
+### v0.2.14 — Icom Setup menus + preamp/tuner
+- **Icom CI-V Setup menus** — the data-driven Setup tab generalized to Icom (`1A 05`): the
+  **IC-9700** (54 items) and the full **IC-7300MK2** (176 items), on the same engine as the Yaesu
+  `EX` menus; per-model tables in `backend/menus/<id>_menu.py`.
+- **FT-991A preamp IPO / AMP1 / AMP2** (preamp states declared per radio via `preamp_labels`).
+- **Antenna-tuner TUNE** action (operator-triggered ATU tuning cycle) beside the tuner in/out
+  toggle, plus a **waterfall "click or drag to tune"** hint.
+
 ### v0.2.13 — declarative profiles + full Setup menu
 - **Declarative `RadioProfile`** is the single source of truth: structured `transports`
   (serial/network/audio/scope) + a `capabilities` map (synthesized from the flat flags when

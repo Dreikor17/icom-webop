@@ -279,8 +279,8 @@ class YaesuRadio:
             self.state["mnotch"] = 1 if m[4:7] == "001" else 0
         elif m.startswith("BP01") and len(m) >= 7 and m[4:7].isdigit():
             self.state["mnotch_pos"] = _unscale(int(m[4:7]), 320)
-        elif m.startswith("PA0") and len(m) >= 4:
-            self.state["preamp"] = 1 if m[3] in ("1", "2") else 0
+        elif m.startswith("PA0") and len(m) >= 4 and m[3].isdigit():
+            self.state["preamp"] = int(m[3])             # 0 IPO / 1 AMP1 / 2 AMP2
         elif m.startswith("RA0") and len(m) >= 4:
             self.state["att"] = 1 if m[3] == "1" else 0
         elif m.startswith("LK") and len(m) >= 3 and m[2] in ("0", "1"):
@@ -478,9 +478,10 @@ class YaesuRadio:
         self._send(f"GT0{mode};")
         self._emit_state()
 
-    def set_preamp(self, on: bool) -> None:
-        self.state["preamp"] = 1 if on else 0
-        self._send(f"PA0{1 if on else 0};")          # 0 = IPO, 1 = AMP1
+    def set_preamp(self, level) -> None:
+        level = max(0, min(2, int(level)))           # 0 = IPO, 1 = AMP1, 2 = AMP2
+        self.state["preamp"] = level
+        self._send(f"PA0{level};")
         self._emit_state()
 
     def set_att(self, on: bool) -> None:
@@ -511,11 +512,19 @@ class YaesuRadio:
         self._emit_state()
 
     def set_tuner(self, on: bool) -> None:
-        # Switch the internal ATU in (AC001) or out of line (AC000). This does NOT
-        # transmit. Starting an actual tuning cycle is AC002;, which keys a carrier —
-        # that is a TX action and is deliberately not issued here.
+        # Switch the internal ATU in (AC001) or out of line (AC000). This does NOT transmit.
         self.state["tuner"] = 1 if on else 0
         self._send("AC001;" if on else "AC000;")
+        self._emit_state()
+
+    def tune_atu(self) -> None:
+        """Start an antenna-tuner cycle (AC002). Operator-triggered — this keys a brief carrier
+        to tune (the same TX boundary as PTT). The radio self-limits the cycle, and the hardware
+        TX time-out set on connect is the backstop if it ever sticks. Tuning puts the ATU in line."""
+        if not self.state.get("connected"):
+            return
+        self.state["tuner"] = 1
+        self._send("AC002;")
         self._emit_state()
 
     def set_ptt(self, tx: bool) -> None:

@@ -109,7 +109,11 @@
     setActive(".m-btn", b => b.dataset.meter === (s.meter || "S"));
 
     // RX toggles
-    $("preampBtn").classList.toggle("on", (s.preamp || 0) > 0);
+    { const pb = $("preampBtn"); if (pb) {
+        const labels = (currentRadio && currentRadio.preamp_labels) || ["OFF", "P.AMP"];
+        pb.textContent = labels[s.preamp || 0] || labels[0];
+        pb.classList.toggle("on", (s.preamp || 0) > 0);
+      } }
     $("attBtn").classList.toggle("on", (s.att || 0) > 0);
     $("lockBtn").classList.toggle("on", !!s.lock);
     { const tb = $("tunerBtn"); if (tb) tb.classList.toggle("on", (s.tuner || 0) > 0); }
@@ -274,12 +278,17 @@
     else if (act === "meter") send({ action: "set_meter", meter: b.dataset.meter });
     else if (act === "toggle") {
       const fn = b.dataset.fn;
-      const on = fn === "att" ? !((state.att || 0) > 0)
-               : fn === "preamp" ? !((state.preamp || 0) > 0)
-               : fn === "tuner" ? !((state.tuner || 0) > 0)
-               : !state.lock;
-      send({ action: fn, on });
+      if (fn === "preamp") {                              // cycle through the radio's preamp states
+        const labels = (currentRadio && currentRadio.preamp_labels) || ["OFF", "P.AMP"];
+        send({ action: "preamp", level: ((state.preamp || 0) + 1) % labels.length });
+      } else {
+        const on = fn === "att" ? !((state.att || 0) > 0)
+                 : fn === "tuner" ? !((state.tuner || 0) > 0)
+                 : !state.lock;
+        send({ action: fn, on });
+      }
     }
+    else if (act === "tune_atu") send({ action: "tune_atu" });
     else if (act === "rxfunc") send({ action: "rx_func", name: b.dataset.fn, on: !((state[b.dataset.fn] || 0) > 0) });
     else if (act === "agc") send({ action: "agc", mode: +b.dataset.mode });
     else if (act === "mnotch_w") send({ action: "mnotch_w", width: +b.dataset.width });
@@ -683,9 +692,14 @@
     const cap = p.capabilities || {};
     const capHas = (k, flat) => (k in cap ? cap[k] : flat);
     const sub = $("rowSub"); if (sub) sub.style.display = capHas("dual_watch", p.dual_watch) ? "" : "none";
-    const pa = $("preampBtn"); if (pa) pa.style.display = capHas("preamp", p.has_preamp) ? "" : "none";
+    const pa = $("preampBtn"); if (pa) {
+      pa.style.display = capHas("preamp", p.has_preamp) ? "" : "none";
+      const pl = p.preamp_labels || ["OFF", "P.AMP"];
+      pa.textContent = pl[state.preamp || 0] || pl[0];
+    }
     const at = $("attBtn"); if (at) at.style.display = capHas("att", p.has_att) ? "" : "none";
     const tu = $("tunerBtn"); if (tu) tu.style.display = capHas("tuner", p.has_tuner) ? "" : "none";
+    const tn = $("tuneBtn"); if (tn) tn.style.display = capHas("tuner", p.has_tuner) ? "" : "none";
     // VFO A/B select: hidden when the rig has no CAT active-VFO selector (FT-991A); A=B/SWAP stay
     const vfoSel = capHas("vfo_select", true);
     document.querySelectorAll('[data-act="vfo"][data-code="0"], [data-act="vfo"][data-code="1"]')

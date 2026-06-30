@@ -806,19 +806,27 @@
     const sel = $("transport");
     const opt = sel.options[sel.selectedIndex];
     const isSerial = opt && opt.dataset.kind === "serial";
+    const isLan = sel.value === "lan";
     $("baud").hidden = !isSerial;
-    $("lanFields").hidden = sel.value !== "lan";
-    const ua = $("usbAudio"); if (ua) ua.hidden = !isSerial;   // USB device pickers for COM radios
-    if (isSerial) loadAudioDevices();
+    $("lanFields").hidden = !isLan;
+    const devs = $("audioDevs");
+    if (devs) {
+      devs.hidden = !(isSerial || isLan);            // COM: Radio RX/TX + Mic In; LAN: Mic In only; sim: none
+      devs.querySelectorAll(".usb-only").forEach((el) => { el.hidden = !isSerial; });  // radio channels are USB-only
+    }
+    if (isSerial || isLan) loadAudioDevices();
     const note = $("audioAvail");
-    if (note) note.textContent = isSerial ? "• USB device" : (sel.value === "lan" ? "• network" : "");
+    if (note) note.textContent = isSerial ? "• USB device" : (isLan ? "• network" : "");
   }
-  $("transport").addEventListener("change", () => { updateConnFields(); saveConn(); });
+  $("transport").addEventListener("change", () => {
+    stopAllAudio();              // audio belongs to a transport; don't let a stream outlive a switch
+    updateConnFields(); saveConn();
+  });
 
   // ---- per-radio connection memory (transport + settings, and COM audio devices) ----
   const CONNS_KEY = "radiowebop.conns";
   let CONNS = { last: null, radios: {} };
-  let wantRxDev = null, wantMicDev = null;          // device IDs to restore once the lists populate
+  let wantRxDev = null, wantMicDev = null, wantMicInDev = null;   // device IDs to restore once the lists populate
   (function loadConns() {
     try { const v = JSON.parse(localStorage.getItem(CONNS_KEY)); if (v && v.radios) CONNS = v; } catch (_) {}
     if (!CONNS.radios) CONNS.radios = {};
@@ -850,6 +858,7 @@
       baud: $("baud").value,
       host: $("lanHost").value, user: $("lanUser").value, pass: $("lanPass").value,
       rxDev: $("rxDev") ? $("rxDev").value : "", micDev: $("micDev") ? $("micDev").value : "",
+      micInDev: $("micInDev") ? $("micInDev").value : "",
     };
   }
   function saveConn() {
@@ -875,7 +884,7 @@
         if (enh) sel.value = enh.value;
       }
     }
-    wantRxDev = c.rxDev || null; wantMicDev = c.micDev || null;
+    wantRxDev = c.rxDev || null; wantMicDev = c.micDev || null; wantMicInDev = c.micInDev || null;
     updateConnFields();                             // shows the right fields + (serial) loads audio devices
   }
   async function doConnect(body, silent) {
@@ -922,7 +931,10 @@
     ensureAudioCtx(); playTime = 0; rsFifo = []; rsPos = 0; audioOn = true;
   }
   // minimal audio API for overlay tools (e.g. the CW decoder/coder in cwtool.js)
-  window.RadioAudio = { ensure: ensureAudioCtx, ctx: () => audioCtx, bus: () => rxBus, state: () => state };
+  // on(): is RX audio actually running? (the 🔊 RX button is active for both serial + LAN paths).
+  // Tools use this for status instead of guessing from the instantaneous audio level.
+  window.RadioAudio = { ensure: ensureAudioCtx, ctx: () => audioCtx, bus: () => rxBus, state: () => state,
+    on: () => !!($("audioBtn") && $("audioBtn").classList.contains("active")) };
   // control channel for overlay tools (CW TX): send a WS command + read live state
   window.RadioControl = { send: (o) => send(o), state: () => state };
   function playAudio(buf) {
@@ -969,10 +981,14 @@
       " — open the app on the PC the radio is plugged into (http://localhost:8700), or serve it over HTTPS.");
     return false;
   }
-  function fillDevs(sel, list, kind) {
+  function fillDevs(sel, list, kind, withDefault) {
     if (!sel) return;
     const prev = sel.value; sel.innerHTML = "";
-    if (!list.length) {
+    if (withDefault) {                             // leading "system default" entry (value "" -> getUserMedia default).
+      const o = document.createElement("option");  // Mic In uses this so it never auto-picks the radio's RX CODEC.
+      o.value = ""; o.textContent = "Default " + kind.toLowerCase(); sel.appendChild(o);
+    }
+    if (!list.length && !withDefault) {
       const o = document.createElement("option"); o.value = ""; o.textContent = "(no " + kind.toLowerCase() + " devices)";
       sel.appendChild(o); return;
     }
@@ -988,14 +1004,17 @@
     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
     let devs = [];
     try { devs = await navigator.mediaDevices.enumerateDevices(); } catch (_) { return; }
-    fillDevs($("rxDev"), devs.filter((d) => d.kind === "audioinput"), "Input");
-    fillDevs($("micDev"), devs.filter((d) => d.kind === "audiooutput"), "Output");
-    applyWantedDevs();                              // restore the remembered RX-in / Mic-out for this radio
+    const ins = devs.filter((d) => d.kind === "audioinput");
+    fillDevs($("rxDev"), ins, "Input");                                  // Radio RX (USB CODEC input)
+    fillDevs($("micInDev"), ins, "Mic", true);                           // computer's mic (defaults to OS default, not the CODEC)
+    fillDevs($("micDev"), devs.filter((d) => d.kind === "audiooutput"), "Output");   // Radio TX (USB CODEC output)
+    applyWantedDevs();                              // restore the remembered Radio RX / Radio TX / Mic In for this radio
   }
   function applyWantedDevs() {
-    const r = $("rxDev"), m = $("micDev");
+    const r = $("rxDev"), m = $("micDev"), mi = $("micInDev");
     if (r && wantRxDev && [...r.options].some((o) => o.value === wantRxDev)) r.value = wantRxDev;
     if (m && wantMicDev && [...m.options].some((o) => o.value === wantMicDev)) m.value = wantMicDev;
+    if (mi && wantMicInDev && [...mi.options].some((o) => o.value === wantMicInDev)) mi.value = wantMicInDev;
   }
   if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
     navigator.mediaDevices.addEventListener("devicechange", loadAudioDevices);
@@ -1030,13 +1049,23 @@
   // serial mic: capture the mic and play it to the chosen OUTPUT device (the
   // radio's USB CODEC). Safe: this never keys TX — the radio transmits only when
   // you press its PTT with its MOD source set to USB.
+  // Clearer message for the failure modes the Mic In deviceId constraint can raise.
+  function micErr(e) {
+    const n = e && e.name;
+    if (n === "OverconstrainedError" || n === "NotFoundError")
+      return "The selected Mic In device isn't available — pick another under Mic In.\n(" + e + ")";
+    if (n === "NotReadableError")
+      return "The microphone is in use by another app and can't be opened.\n(" + e + ")";
+    return "Microphone access denied: " + e;
+  }
   let micStreamSerial = null, micElSerial = null, micMeterSrc = null, micMeterRAF = 0;
   async function startSerialMic() {
     if (!audioSecure()) return false;
     try {
+      const micId = $("micInDev") ? $("micInDev").value : "";
       micStreamSerial = await navigator.mediaDevices.getUserMedia(
-        { audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
-    } catch (e) { alert("Microphone access denied: " + e); return false; }
+        { audio: { deviceId: micId ? { exact: micId } : undefined, channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+    } catch (e) { alert(micErr(e)); return false; }
     micElSerial = new Audio();
     micElSerial.srcObject = micStreamSerial;
     const outId = $("micDev").value;
@@ -1070,30 +1099,49 @@
   // to RF by the mode's sideband (USB: dial+af, LSB: dial-af) so the labels, tuned
   // marker and band plan all read real frequencies — a mini panadapter of the passband.
   let afTimer = 0, afAnalyser = null;
-  const AF_MAX = 4000;                          // Hz of the RX audio passband to show
+  const AF_MAX = 3600;                          // Hz of the RX audio passband to show (SSB/CW/data occupied width)
+  const AF_RANGE_DB = 30;                       // dB above the LOCAL noise floor mapped to full brightness
+  const AF_MARGIN_DB = 3;                       // headroom that keeps the flattened noise floor dark
   function afEligible() { return !!(currentRadio && currentRadio.has_scope === false); }
   function startAfScope(srcNode) {
     stopAfScope();
     ensureAudioCtx();
-    afAnalyser = audioCtx.createAnalyser();
-    afAnalyser.fftSize = 4096;
-    afAnalyser.smoothingTimeConstant = 0.5;
-    afAnalyser.minDecibels = -95;
-    afAnalyser.maxDecibels = -20;
-    try { srcNode.connect(afAnalyser); } catch (_) { afAnalyser = null; return; }
-    const bins = afAnalyser.frequencyBinCount, buf = new Uint8Array(bins);
     const sr = audioCtx.sampleRate;
-    const n = Math.max(64, Math.min(bins, Math.round(AF_MAX / (sr / 2) * bins)));
-    const data = new Uint8Array(n);
+    afAnalyser = audioCtx.createAnalyser();
+    // Size the FFT so the passband spans ~1 bin per output pixel — maximum useful detail without
+    // over/under-sampling (fftSize ~= W*sr/AF_MAX; e.g. 8192 @ 48 kHz over a ~700 px scope).
+    const W = (scope && scope.W) || 700;
+    const fft = 1 << Math.round(Math.log2(Math.max(2048, W * sr / AF_MAX)));
+    afAnalyser.fftSize = Math.max(4096, Math.min(16384, fft));
+    afAnalyser.smoothingTimeConstant = 0;        // no temporal smoothing — crisp, like WSJT
+    try { srcNode.connect(afAnalyser); } catch (_) { afAnalyser = null; return; }
+    const bins = afAnalyser.frequencyBinCount, buf = new Float32Array(bins);
+    const nyq = sr / 2;
+    const n = Math.max(64, Math.min(bins, Math.round(AF_MAX / nyq * bins)));   // bins inside the passband
+    const data = new Uint8Array(n), b = new Float32Array(n), bl = new Float32Array(n);
+    const binHz = sr / afAnalyser.fftSize;
+    const H = Math.max(6, Math.round(250 / binHz));   // baseline half-window (~250 Hz of bins)
     const ns = $("noScope"); if (ns) ns.hidden = true;
     const badge = $("afBadge"); if (badge) badge.hidden = false;
     afTimer = setInterval(() => {
-      afAnalyser.getByteFrequencyData(buf);
+      afAnalyser.getFloatFrequencyData(buf);     // raw dB (full dynamic range), not the lossy 0-255 byte path
       const mode = state.mode_name || "USB";
       const lsb = mode === "LSB" || mode === "CW-R" || mode === "RTTY" || mode === "DATA-L";
+      for (let i = 0; i < n; i++) { const d = buf[lsb ? (n - 1 - i) : i]; b[i] = d > -200 ? d : -160; }
+      // Per-frequency noise baseline via a wide boxcar mean (O(n) sliding window). Subtracting it
+      // flattens the radio's shaped passband so the floor goes dark and only energy ABOVE the local
+      // noise shows — the clean WSJT look (vs a single global floor that leaves the hump bright).
+      let sum = 0, cnt = 0;
+      for (let j = 0; j <= H && j < n; j++) { sum += b[j]; cnt++; }
       for (let i = 0; i < n; i++) {
-        const v = buf[lsb ? (n - 1 - i) : i];
-        data[i] = (v * 160 / 255) | 0;          // 0-255 FFT byte -> the scope's 0-160 range
+        bl[i] = sum / cnt;
+        const rem = i - H; if (rem >= 0) { sum -= b[rem]; cnt--; }
+        const add = i + 1 + H; if (add < n) { sum += b[add]; cnt++; }
+      }
+      const gain = 160 / AF_RANGE_DB;
+      for (let i = 0; i < n; i++) {
+        const r = (b[i] - bl[i] - AF_MARGIN_DB) * gain;        // dB above the local noise floor -> 0..160
+        data[i] = r <= 0 ? 0 : r >= 160 ? 160 : r | 0;
       }
       const dial = state.freq || 0;
       const lower = lsb ? dial - AF_MAX : dial;
@@ -1101,7 +1149,7 @@
       // tuned:0 -> no RF marker (the dial sits at an edge here); labels read lower/center/upper
       scope.pushSweep({ mode: 0, center: (lower + upper) / 2, span: AF_MAX, lower, upper, tuned: 0, filterBw: 0 }, data);
       updateScopeLabels(scope.meta);
-    }, 45);                                       // ~22 fps
+    }, 40);                                       // ~25 fps
   }
   function stopAfScope() {
     if (afTimer) { clearInterval(afTimer); afTimer = 0; }
@@ -1117,11 +1165,20 @@
     $("micBtn").classList.remove("on");
   }
 
-  // re-route live if the device picker changes while running
-  if ($("rxDev")) $("rxDev").addEventListener("change", () => { saveConn(); if (rxSrcNode) { stopSerialRx(); startSerialRx(); } });
+  // re-route live if the device picker changes while running. Sync the want* cache FIRST so the
+  // restart's loadAudioDevices() -> applyWantedDevs() restores the NEW pick, not the stale saved one.
+  if ($("rxDev")) $("rxDev").addEventListener("change", () => {
+    wantRxDev = $("rxDev").value || null; saveConn();
+    if (rxSrcNode) { stopSerialRx(); startSerialRx(); }
+  });
   if ($("micDev")) $("micDev").addEventListener("change", async () => {
-    saveConn();
+    wantMicDev = $("micDev").value || null; saveConn();
     if (micElSerial && micElSerial.setSinkId) { try { await micElSerial.setSinkId($("micDev").value); } catch (_) {} }
+  });
+  if ($("micInDev")) $("micInDev").addEventListener("change", () => {
+    wantMicInDev = $("micInDev").value || null; saveConn();
+    if (micStreamSerial) { stopSerialMic(); startSerialMic(); }   // COM mic capture -> re-open on the new input
+    else if (micOn) { stopMic(); startMic(); }                    // LAN mic capture -> re-open on the new input
   });
 
   // ---- TX mic (capture -> 16 kHz mono s16le -> server -> radio) ----
@@ -1137,9 +1194,11 @@
       return false;
     }
     try {
+      const micId = $("micInDev") ? $("micInDev").value : "";
       micStream = await navigator.mediaDevices.getUserMedia(
-        { audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
-    } catch (e) { alert("Microphone access denied: " + e); return false; }
+        { audio: { deviceId: micId ? { exact: micId } : undefined, channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+    } catch (e) { alert(micErr(e)); return false; }
+    loadAudioDevices();                  // mic labels are available now permission is granted
     if (!audioCtx) startAudio();
     micSrc = audioCtx.createMediaStreamSource(micStream);
     micProc = audioCtx.createScriptProcessor(4096, 1, 1);

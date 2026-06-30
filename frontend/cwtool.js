@@ -17,7 +17,7 @@
   const $ = (id) => document.getElementById(id);
   const RA = () => window.RadioAudio || null;
   const RC = () => window.RadioControl || null;   // WS command channel + live radio state
-  const CW_WORKER_V = "1";                       // bump when cw-worker.js changes (cache-bust)
+  const CW_WORKER_V = "2";                       // bump when cw-worker.js changes (cache-bust)
 
   const MORSE = {
     A: ".-", B: "-...", C: "-.-.", D: "-..", E: ".", F: "..-.", G: "--.", H: "....",
@@ -119,20 +119,26 @@
     panel.addEventListener("lostpointercapture", end);
   })();
 
-  // ---- neural decoder ----
+  // ---- neural decoder: live streaming over a growing buffer, committing at word gaps ----
+  // Ported from e04/web-deep-cw-decoder (src/hooks/useStreamingDecode.ts): keep a buffer of
+  // UNcommitted audio; each tick decode it and show the running decode as a live preview; when a
+  // settled word gap is found (a word-space span at least TAIL_GUARD before the end), commit the
+  // text up to that gap and slide the buffer PAST it. Because the cut lands in a word gap and the
+  // in-progress word's audio is retained, the live stream decodes with no mid-word seam.
   const SR = 3200;                               // model sample rate
-  const INFER_MS = 1200;                         // re-decode cadence
-  const MIN_SEC = 5;                             // pad short windows to the model's min length
-  const MAX_SEC = 11;                            // finalize + reset before the model's 20 s cap
-  const PAUSE_STABLE = 3;                        // identical decodes in a row -> a settled pause -> commit
-  const SILENCE = 1.5e-3;                        // |sample| below this for the whole window = no RX
+  const INFER_MS = 1000;                         // re-decode cadence
+  const MIN_PAD_S = 5;                           // pad short analyses to the model's min length
+  const MIN_PENDING = 2 * SR;                    // need this much audio before decoding
+  const MIN_CONFIRMED = 2 * SR;                  // earliest sample we'll commit up to
+  const TAIL_GUARD = (1.25 * SR) | 0;            // never commit text inside the freshest tail (may still change)
+  const MAX_SEGMENT = 18 * SR;                   // force a commit before the model's input grows too long
+  const SILENCE = 1.5e-3;                        // |sample| below this across the buffer = no RX signal
 
-  let worker = null, workerReady = false;
+  let worker = null, workerReady = false, HOP = 48;      // HOP (frame -> sample) comes from the worker
   let capNode = null, ticker = 0, workletReady = false;  // realtime capture worklet
-  let buf = new Float32Array(MAX_SEC * SR), winLen = 0;   // current window @ 3200 Hz
-  let peak = 0;                                  // |sample| peak seen this window (RX-present gate)
-  let committed = "", live = "", prevLive = "", stable = 0;
-  let inflight = false, lastInferLen = -1, reqId = 0;
+  let buf = new Float32Array(21 * SR), pendingLen = 0;   // UNcommitted audio @ 3200 Hz (room above MAX_SEGMENT)
+  let committed = "", pendingText = "", lastPeak = 0;
+  let inflight = false, analysisLen = 0, reqId = 0;
   const out = $("cwOut"), hint = $("cwHint"), statusEl = $("cwStatus");
 
   function setStatus(s) { if (statusEl) statusEl.textContent = s; }
@@ -143,7 +149,7 @@
     worker = new Worker("/static/cw-worker.js?v=" + CW_WORKER_V);
     worker.onmessage = (e) => {
       const m = e.data;
-      if (m.type === "ready") { workerReady = true; setStatus("ready"); render(); }
+      if (m.type === "ready") { workerReady = true; if (m.hop) HOP = m.hop; setStatus("ready"); render(); }
       else if (m.type === "error") { setStatus("model failed"); }
       else if (m.type === "result") onResult(m);
     };
@@ -157,8 +163,8 @@
     const ctx = ra.ctx(), bus = ra.bus();
     if (!ctx || !bus) return;
     stopCapture();
-    winLen = 0; peak = 0; committed = ""; live = ""; prevLive = ""; stable = 0;
-    inflight = false; lastInferLen = -1;
+    pendingLen = 0; committed = ""; pendingText = ""; lastPeak = 0;
+    inflight = false; analysisLen = 0;
     render();
     try {
       if (!workletReady) { await ctx.audioWorklet.addModule("/static/cw-capture-worklet.js?v=" + CW_WORKER_V); workletReady = true; }
@@ -177,72 +183,90 @@
     if (capNode) { try { capNode.disconnect(); capNode.port.onmessage = null; } catch (_) {} capNode = null; }
   }
 
-  // 3200 Hz chunks from the realtime capture worklet -> append to the current window
+  // 3200 Hz chunks from the realtime capture worklet -> append to the pending (uncommitted) buffer
   function appendSamples(arr) {
     for (let i = 0; i < arr.length; i++) {
-      if (winLen >= buf.length) break;
-      const v = arr[i]; buf[winLen++] = v;
-      const a = v < 0 ? -v : v; if (a > peak) peak = a;
+      if (pendingLen >= buf.length) break;       // bounded; tick force-commits well before this
+      buf[pendingLen++] = arr[i];
     }
   }
 
   function tick() {
-    if (!workerReady || inflight || !winLen) return;
-    if (peak < SILENCE) {                          // no signal: keep only a short lead, never accumulate
-      const keep = (0.4 * SR) | 0;                 // silence must not fill the window (-> premature finalize)
-      if (winLen > keep) { buf.copyWithin(0, winLen - keep, winLen); winLen = keep; lastInferLen = -1; }
-      peak = 0;
-      return;
+    if (!workerReady) { render(); return; }
+    if (inflight) return;
+    if (pendingLen < MIN_PENDING) { render(); return; }
+    let pk = 0;                                   // RX-present gate: peak across the whole pending buffer
+    for (let i = 0; i < pendingLen; i++) { const a = buf[i] < 0 ? -buf[i] : buf[i]; if (a > pk) pk = a; }
+    lastPeak = pk;
+    if (pk < SILENCE) {                           // no signal: keep a short lead, never decode pure noise
+      const keep = Math.min(pendingLen, (0.5 * SR) | 0);
+      if (pendingLen > keep) { buf.copyWithin(0, pendingLen - keep, pendingLen); pendingLen = keep; }
+      pendingText = ""; render(); return;
     }
-    if (winLen === lastInferLen) return;          // nothing new since the last decode
-    lastInferLen = winLen;
-    const lead = (SR / 4) | 0;                     // 0.25 s leading silence: CTC context for the 1st char
-    const L = Math.max(winLen + lead, MIN_SEC * SR);
+    analysisLen = Math.min(pendingLen, MAX_SEGMENT);
+    const L = Math.max(analysisLen, MIN_PAD_S * SR);     // pad short analyses with trailing silence
     const a = new Float32Array(L);
-    a.set(buf.subarray(0, winLen), lead);         // [silence | window | trailing silence]
+    a.set(buf.subarray(0, analysisLen));
+    const g = Math.max(0.1, Math.min(100, 0.5 / pk));    // level-normalize (the model has no input AGC)
+    if (g !== 1) for (let i = 0; i < analysisLen; i++) a[i] *= g;
     inflight = true;
     worker.postMessage({ type: "decode", id: ++reqId, audio: a }, [a.buffer]);
   }
 
+  // The latest word-space gap whose mid-sample is settled: >= MIN_CONFIRMED in, and (unless we're
+  // forcing because the buffer is too long) at least TAIL_GUARD before the analyzed end.
+  function findSplit(spans, allowNearEnd) {
+    const maxCommit = allowNearEnd ? analysisLen : Math.max(MIN_CONFIRMED, analysisLen - TAIL_GUARD);
+    for (let i = spans.length - 1; i >= 0; i--) {
+      const sample = Math.round(((spans[i].startFrame + spans[i].endFrame) / 2) * HOP);
+      if (sample >= MIN_CONFIRMED && sample <= maxCommit) return { sample, endFrame: spans[i].endFrame };
+    }
+    return null;
+  }
+  function trimToFrame(spans, endFrame) {        // text of the characters that end at/before a frame
+    let s = "";
+    for (let i = 0; i < spans.length; i++) if (spans[i].endFrame <= endFrame) s += spans[i].char;
+    return s;
+  }
+  function norm(s) { return s.replace(/\s+/g, " ").trim(); }
+
   function onResult(m) {
     inflight = false;
     if (m.err) { return; }
-    const D = m.text || "";
-    if (D === prevLive) stable += 1; else { stable = 0; prevLive = D; }
-    live = D;
-    const paused = stable >= PAUSE_STABLE && winLen >= 3 * SR && D.trim();
-    const full = winLen >= (MAX_SEC - 0.5) * SR;
-    if (paused || full) finalize(D);
-    else render();
-  }
-
-  // commit the window's decode to the transcript and start a fresh window, keeping
-  // the audio captured during the inference so nothing is dropped at the seam.
-  function finalize(D) {
-    const t = D.trim();
-    if (t) committed += (committed && !committed.endsWith(" ") ? " " : "") + t;
-    if (committed.length > 800) committed = committed.slice(-700);
-    const sent = lastInferLen, tail = winLen - sent;
-    if (tail > 0) buf.copyWithin(0, sent, winLen);
-    winLen = Math.max(0, tail);
-    peak = 0; live = ""; prevLive = ""; stable = 0; lastInferLen = -1;
+    pendingText = norm(m.text || "");            // running decode of the pending buffer = the live preview
+    const ws = m.wordSpaceSpans || [], cs = m.characterSpans || [];
+    let split = findSplit(ws, false);
+    if (!split && pendingLen >= MAX_SEGMENT) split = findSplit(ws, true);
+    const confirmedLen = split ? split.sample : (pendingLen >= MAX_SEGMENT ? analysisLen : 0);
+    if (confirmedLen >= MIN_CONFIRMED) {
+      const segText = split ? norm(trimToFrame(cs, split.endFrame)) : pendingText;   // forced: whole analysis
+      if (segText) {
+        committed += (committed && !committed.endsWith(" ") ? " " : "") + segText;
+        if (committed.length > 1400) committed = committed.slice(-1200);
+      }
+      buf.copyWithin(0, confirmedLen, pendingLen); pendingLen -= confirmedLen;       // slide past committed audio
+      pendingText = "";                          // cleared so committed text never appears twice in one tick
+    }
     render();
   }
 
   function render() {
     if (out) {
       out.innerHTML = esc(committed) +
-        (live ? (committed ? " " : "") + '<span class="cw-live">' + esc(live) + "</span>" : "");
+        (pendingText ? (committed ? " " : "") + '<span class="cw-live">' + esc(pendingText) + "</span>" : "");
       out.scrollTop = out.scrollHeight;
     }
     if (hint) {
+      // Drive the prompt off whether RX audio is actually ON — not the audio level, so it never
+      // flashes "turn on RX" mid-decode just because of a momentary gap or a commit.
+      const ra = RA(), rxOn = ra && ra.on ? ra.on() : (lastPeak >= SILENCE);
       hint.textContent = !workerReady ? "loading neural model…"
-        : (peak < SILENCE ? "turn on 🔊 RX to decode the receiver audio" : "decoding…");
+        : (rxOn ? "decoding…" : "turn on 🔊 RX to decode the receiver audio");
     }
   }
   function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 
-  $("cwClear").addEventListener("click", () => { committed = ""; live = ""; render(); });
+  $("cwClear").addEventListener("click", () => { committed = ""; pendingText = ""; render(); });
 
   // ---- coder (text -> Morse sidetone; never transmits) ----
   $("cwPlay").addEventListener("click", () => playMorse($("cwSend").value));
@@ -324,4 +348,23 @@
   }
   setInterval(syncTx, 400);
   syncTx();
+
+  // diagnostic: window.__cwdiag() -> live decode internals (peak / dominant Hz / raw text)
+  window.__cwdiag = function () {
+    let domF = 0, domE = -1;
+    const N = Math.min(pendingLen, SR);             // last ~1 s of the pending buffer
+    if (N > 128) {
+      const start = pendingLen - N;
+      for (let f = 250; f <= 1500; f += 25) {       // coarse Goertzel scan for the dominant tone
+        const coeff = 2 * Math.cos(2 * Math.PI * f / SR);
+        let s1 = 0, s2 = 0;
+        for (let i = 0; i < N; i++) { const s0 = buf[start + i] + coeff * s1 - s2; s2 = s1; s1 = s0; }
+        const e = s1 * s1 + s2 * s2 - coeff * s1 * s2;
+        if (e > domE) { domE = e; domF = f; }
+      }
+    }
+    return { peak: +lastPeak.toFixed(4), pendingLen, sec: +(pendingLen / SR).toFixed(2),
+             domHz: domF, inBand: domF >= 400 && domF <= 1200,
+             pending: pendingText, committed: committed.slice(-48), ready: workerReady };
+  };
 })();

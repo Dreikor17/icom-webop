@@ -3,6 +3,38 @@
 All notable changes to **Radio WebOp** are documented here. This project adheres
 to [Semantic Versioning](https://semver.org).
 
+## [0.2.15] — 2026-06-29
+
+Three-input audio device routing, a far sharper WSJT-style waterfall, and a CW decoder that
+decodes the live stream continuously with no window seam.
+
+### Added
+- **Audio device routing, named per direction.** On a COM/USB radio the AUDIO panel now has three
+  pickers — **Radio RX** (the rig's USB-CODEC receive audio you hear), **Radio TX** (the CODEC
+  output your mic is routed to), and **Mic In** (your computer's microphone). On an IP/LAN radio only
+  **Mic In** shows (RX/TX ride the network). Each is remembered per radio. **Mic In defaults to the
+  system default microphone**, never the radio's RX CODEC — so the mic can't accidentally loop RX
+  audio back into TX.
+
+### Changed
+- **Much higher-resolution spectrum + waterfall** for radios with no CAT scope (e.g. FT-991A). The
+  audio scope now uses an **adaptive FFT** (~1 frequency bin per pixel — up to ~4× the old detail),
+  reads **float dB** data instead of the lossy 8-bit path, and subtracts a **per-frequency noise
+  baseline** so the receiver's shaped passband flattens to a dark floor and signals pop — much closer
+  to WSJT. Temporal smoothing is **off** and the waterfall renders with crisp (non-interpolated) pixels.
+- **CW decoder now decodes the live stream continuously — no window seam.** Reworked to a
+  growing-buffer streaming decoder (after [e04/web-deep-cw-decoder](https://github.com/e04/web-deep-cw-decoder)):
+  it commits each word at the **settled word gap** and slides the audio buffer past it, so a word is
+  never cut mid-character the way the old fixed ~10 s window did. Committed text accumulates with a
+  live preview trailing. The worker now returns per-character / word-space frame spans to drive it.
+
+### Fixed
+- **CW prompt no longer flashes "turn on RX" mid-decode** — it reflects whether RX audio is actually
+  on, not a momentary audio level.
+- **Mic In** no longer snaps back to a stale saved device when changed mid-stream; clearer message
+  when a selected microphone is unavailable; audio stops cleanly when the transport is switched; the
+  device pickers carry screen-reader labels.
+
 ## [0.2.14] — 2026-06-29
 
 Icom CI-V Setup menus (IC-9700 + IC-7300MK2), the FT-991A preamp's third state, an

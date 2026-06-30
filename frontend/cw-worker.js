@@ -17,7 +17,7 @@ ort.env.wasm.wasmPaths = "/static/vendor/ort/";
 ort.env.wasm.numThreads = 1;                              // single-thread -> no SharedArrayBuffer / COOP-COEP
 ort.env.wasm.simd = true;
 
-let session = null, meta = null;
+let session = null, meta = null, spaceIndex = -1;
 let hann = null, basisCos = null, basisSin = null, startBin = 0, stopBin = 0, BINS = 0;
 
 async function init() {
@@ -34,8 +34,9 @@ async function init() {
     for (let n = 0; n < N; n++) { const a = (-2 * Math.PI * bin * n) / N; c[n] = Math.cos(a); s[n] = Math.sin(a); }
     basisCos.push(c); basisSin.push(s);
   }
+  spaceIndex = meta.chars.indexOf(" ");
   session = await ort.InferenceSession.create("/static/models/deepcw/model.onnx", { executionProviders: ["wasm"] });
-  self.postMessage({ type: "ready", bins: BINS });
+  self.postMessage({ type: "ready", bins: BINS, hop: meta.hop_length, fft: meta.fft_length, sr: meta.sample_rate });
 }
 
 function spectrogram(audio) {
@@ -63,16 +64,37 @@ function spectrogram(audio) {
   return { data, frames };
 }
 
-function greedyCtc(logProbs, dims) {
-  const frames = dims[1], classes = dims[2];
-  let prev = -1, out = "";
+// Greedy CTC -> collapsed text PLUS frame spans for each character and each word-space run.
+// (Adapted from e04/web-deep-cw-decoder src/utils/textDecoder.ts.) The spans carry frame
+// timing so the streaming caller can commit at a settled word gap and slide the audio buffer
+// to that exact point — decoding the live stream with no mid-word seam.
+function decodeWithSpans(logProbs, dims) {
+  const frames = dims[1], classes = dims[2], blank = meta.blank_index;
+  const pred = new Int16Array(frames);
   for (let f = 0; f < frames; f++) {
     let bi = 0, bv = -Infinity, base = f * classes;
     for (let k = 0; k < classes; k++) { const v = logProbs[base + k]; if (v > bv) { bv = v; bi = k; } }
-    if (bi === meta.blank_index) { prev = -1; }
-    else { if (bi !== prev) out += meta.chars[bi]; prev = bi; }
+    pred[f] = bi;
   }
-  return out;
+  let text = "", prev = -1, active = -1;
+  const characterSpans = [], wordSpaceSpans = [];
+  for (let f = 0; f < frames; f++) {                 // collapsed text + per-character spans
+    const bi = pred[f];
+    if (bi === blank) { prev = -1; active = -1; continue; }
+    if (bi === prev) { if (active >= 0) characterSpans[active].endFrame = f; continue; }
+    prev = bi;
+    const ch = meta.chars[bi];
+    text += ch;
+    characterSpans.push({ char: ch, startFrame: f, endFrame: f });
+    active = characterSpans.length - 1;
+  }
+  let wsStart = -1;                                  // runs of frames the model labels "space"
+  for (let f = 0; f < frames; f++) {
+    if (pred[f] === spaceIndex) { if (wsStart < 0) wsStart = f; }
+    else if (wsStart >= 0) { wordSpaceSpans.push({ startFrame: wsStart, endFrame: f - 1 }); wsStart = -1; }
+  }
+  if (wsStart >= 0) wordSpaceSpans.push({ startFrame: wsStart, endFrame: frames - 1 });
+  return { text, characterSpans, wordSpaceSpans };
 }
 
 self.onmessage = async (e) => {
@@ -84,7 +106,9 @@ self.onmessage = async (e) => {
     const input = new ort.Tensor("float32", data, [1, 1, frames, BINS]);
     const out = await session.run({ [meta.onnx_input_name]: input });
     const o = out[meta.onnx_output_name];
-    self.postMessage({ type: "result", id: m.id, text: greedyCtc(o.data, o.dims) });
+    const r = decodeWithSpans(o.data, o.dims);
+    self.postMessage({ type: "result", id: m.id, text: r.text,
+      characterSpans: r.characterSpans, wordSpaceSpans: r.wordSpaceSpans });
   } catch (err) {
     self.postMessage({ type: "result", id: m.id, text: "", err: String(err) });
   }

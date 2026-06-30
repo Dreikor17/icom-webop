@@ -7,6 +7,16 @@ Each radio is a **declarative `RadioProfile`** in `backend/profiles.py` — tran
 
 ## Done
 
+### v0.2.15 — audio routing + sharper waterfall + live CW decode
+- **Three-input audio routing** — COM radios expose **Radio RX / Radio TX / Mic In**; IP radios just
+  **Mic In** (defaults to the OS mic, never the radio CODEC). Remembered per radio.
+- **Higher-resolution, WSJT-style audio scope** — adaptive FFT (~1 bin/pixel) + float dB data + a
+  per-frequency noise-baseline subtraction that flattens the shaped passband to a dark floor (no
+  smoothing, crisp pixels).
+- **Live-streaming CW decode (no seam)** — a growing-buffer decoder that commits at word gaps and
+  slides past them (after [e04/web-deep-cw-decoder](https://github.com/e04/web-deep-cw-decoder)); the
+  worker returns per-character / word-space frame spans. Plus the "turn on RX" false-prompt fix.
+
 ### v0.2.14 — Icom Setup menus + preamp/tuner
 - **Icom CI-V Setup menus** — the data-driven Setup tab generalized to Icom (`1A 05`): the
   **IC-9700** (54 items) and the full **IC-7300MK2** (176 items), on the same engine as the Yaesu
@@ -80,8 +90,9 @@ Each radio is a **declarative `RadioProfile`** in `backend/profiles.py` — tran
   failsafe- and TOT-bound. Icom keys via CI-V `17` (semi break-in) so the rig generates the CW;
   the FT-991A is keyed by host-timed **DTR on its Standard USB port** (PC KEYING=DTR, CAT RTS
   disabled), since it has no arbitrary-text CW CAT command. The decoder is what relicensed the app to **AGPL-3.0** (a
-  deliberate opt-in for the accuracy). *Follow-ups:* tune the streaming finalize so the last
-  char of a discrete burst never slips; optional WebGPU backend.
+  deliberate opt-in for the accuracy). **Live streaming decode shipped (v0.2.15)** — a growing-buffer
+  decoder that commits at settled word gaps and slides past them, so the live stream decodes with no
+  fixed-window seam (after e04/web-deep-cw-decoder). *Follow-ups:* optional WebGPU backend.
 - **Audio recorder** — capture the RX audio (and optionally TX) to a file from the browser:
   start/stop with an elapsed-time + level readout and download. `MediaRecorder` on the
   pre-volume `rxBus` → WebM/Opus (or WAV), so it works for every transport (LAN PCM, USB

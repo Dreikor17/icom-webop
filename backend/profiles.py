@@ -90,6 +90,7 @@ class MenuItem:
     group: str
     kind: str = "enum"         # enum | int | signed-int
     digits: int = 1
+    ex_width: int = 3          # Yaesu EX menu-number width: FT-991A flat EXNNN=3; FT-891 GGNN=4
     options: list = field(default_factory=list)   # enum option labels (index = wire value)
     min: int = 0
     max: int = 0
@@ -133,6 +134,11 @@ class RadioProfile:
     #           same mechanism N1MM / fldigi / cwdaemon use). See docs/ADDING-A-RADIO.md.
     cw_send: str = ""
     cw_line: str = ""             # for cw_send="line": control line to key ("rts" | "dtr")
+    # Yaesu safety: force PC KEYING = OFF on connect when we are NOT managing line keying, so a
+    # stray control line can never key the rig. Full CAT EX string incl. the radio's own
+    # PC-KEYING menu number/width (FT-991A menu 060 -> "EX0600;"; FT-891 menu 07-12 -> "EX07120;").
+    # "" = the radio has no such menu / nothing to disarm.
+    pc_keying_off_cat: str = ""
     make: str = "Icom"            # manufacturer, shown before the model in the picker
     protocol: str = "civ"         # "civ" (Icom CI-V) | "yaesu" (Yaesu CAT)
     has_scope: bool = True        # False = no spectrum/waterfall over the control link
@@ -355,5 +361,69 @@ FT991A = RadioProfile(
     ],
 )
 
-PROFILES = {p.id: p for p in (IC9700, IC7300MK2, FT991A)}
+from .menus.ft891_menu import FT891_MENU  # noqa: E402  (after MenuItem is defined above)
+
+# Yaesu FT-891 — HF/50 MHz all-mode mobile. Yaesu CAT (serial), COM-only: no Ethernet and
+# NO band scope over CAT, so the app shows an audio (AF) scope. Typically reached over a
+# Digirig (one USB serial port for CAT + a separate USB sound card for RX/TX audio), so the
+# radio audio rides the host sound-card path (v0.2.16). No internal ATU (menu 16-15 TUNER
+# SELECT is external/ATAS only), a 2-state preamp (IPO/AMP), a single 12 dB ATT, 5-100 W. The
+# SET menu is grouped (GG-NN) and 4-digit over CAT (EXGGNN) -> the table's ex_width=4.
+# civ_addr / mod_* are unused by the Yaesu path but the dataclass requires them.
+FT891 = RadioProfile(
+    id="ft891", name="FT-891", civ_addr=0x00,
+    make="Yaesu", protocol="yaesu", has_scope=False, has_network=False, default_baud=38400,
+    modes=["LSB", "USB", "CW", "CW-R", "AM", "FM", "RTTY", "RTTY-R", "DATA-L", "DATA-U"],
+    bands=[
+        Band("160", 1_800_000, 2_000_000, 1_840_000),
+        Band("80", 3_500_000, 4_000_000, 3_700_000),
+        Band("60", 5_330_500, 5_403_500, 5_330_500),
+        Band("40", 7_000_000, 7_300_000, 7_074_000),
+        Band("30", 10_100_000, 10_150_000, 10_136_000),
+        Band("20", 14_000_000, 14_350_000, 14_074_000),
+        Band("17", 18_068_000, 18_168_000, 18_100_000),
+        Band("15", 21_000_000, 21_450_000, 21_074_000),
+        Band("12", 24_890_000, 24_990_000, 24_915_000),
+        Band("10", 28_000_000, 29_700_000, 28_074_000),
+        Band("6", 50_000_000, 54_000_000, 50_313_000),
+    ],
+    filter_bw={
+        "LSB": _SSB, "USB": _SSB, "CW": _CW, "CW-R": _CW,
+        "RTTY": _RTTY, "RTTY-R": _RTTY, "DATA-L": _SSB, "DATA-U": _SSB,
+        "AM": {1: 9000, 2: 6000, 3: 3000}, "FM": {1: 16000, 2: 9000, 3: 9000},
+    },
+    mod_dataoff=(0x00, 0x00), lan_mod_level=(0x00, 0x00),
+    tot_cat="EX051402;",            # menu 05-14 TX TOT = 02 min = 120 s (exact backstop)
+    pc_keying_off_cat="EX07120;",   # menu 07-12 PC KEYING = OFF on connect (safety default)
+    cw_send="",                     # no CAT text-CW yet: FT-891 KY only plays stored KM memories
+    default_freq=14_074_000,
+    steps=[(10, "10 Hz"), (100, "100 Hz"), (1000, "1 kHz"), (2500, "2.5 kHz"),
+           (5000, "5 kHz"), (10000, "10 kHz"), (25000, "25 kHz")],
+    default_step=100,
+    # FT-891: IPO/AMP preamp (PA0 0/1), single 12 dB RF ATT (RA0), no internal ATU.
+    has_preamp=True, has_att=True, has_tuner=False,
+    preamp_labels=["IPO", "AMP"],
+    capabilities=Capabilities(
+        preamp=True, att=True, tuner=False, dual_watch=False,
+        vfo_select=False,          # Yaesu CAT has no active-VFO (A/B) selector
+        vfo_swap=True, split=True, rit=True, duplex=True,
+        rx_dsp=["nb", "nr", "anotch", "mnotch"],
+        tx_funcs=["comp", "vox", "mon"], tbw=True,
+        meters=["S", "PO", "SWR", "ALC", "COMP", "Id"],   # FT-891 RM: 7=ID is the top; no VDD (8)
+        cw_tx=False, menus=True,
+    ),
+    menu=FT891_MENU,
+    connect_help=[
+        {"title": "USB CAT via Digirig (COM only)", "items": [
+            "Install the Digirig / CH340 USB-serial driver, then pick the Digirig's COM port above.",
+            "MENU 05-06 [CAT RATE] = 38400 bps to match the Baud box (factory default is 4800 — raise it, or set the Baud box to match your radio).",
+            "MENU 05-08 [CAT RTS] to suit your Digirig cable (DISABLE if RTS on that port keys PTT).",
+            "Serial format is 8 data / no parity / 2 stop bits (8N2) — handled for you.",
+            "Audio: the radio's RX/TX audio is on the Digirig's USB sound card — pick it as Radio RX / Radio TX in the audio selector (Mic In stays your computer mic).",
+            "No network: the FT-891 is COM-only.",
+        ]},
+    ],
+)
+
+PROFILES = {p.id: p for p in (IC9700, IC7300MK2, FT991A, FT891)}
 DEFAULT_PROFILE_ID = "ic9700"

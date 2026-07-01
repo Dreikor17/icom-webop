@@ -192,7 +192,7 @@
       <div class="tab" data-t="rx">RX</div>
       <div class="tab" data-t="tx">TX</div>
       <div class="tab" data-t="dsp">DSP</div>
-      <div class="tab" data-t="setup">Setup</div>
+      <div class="tab" data-t="setup">Settings</div>
     </div>
     <div class="sbody">
 
@@ -254,8 +254,6 @@
         <button class="key tog" data-act="toggle" data-fn="preamp" id="preampBtn">P.AMP</button>
         <button class="key tog" data-act="toggle" data-fn="att" id="attBtn">ATT</button>
         <button class="key tog" data-act="toggle" data-fn="lock" id="lockBtn">LOCK</button>
-        <button class="key tog" data-act="toggle" data-fn="tuner" id="tunerBtn" title="Antenna tuner in / out of line">TUNER</button>
-        <button class="key" data-act="tune_atu" id="tuneBtn" title="Start an antenna-tuner cycle — transmits a brief carrier to tune">TUNE</button>
       </div>
     </div>
     </div><!-- /rx -->
@@ -278,6 +276,14 @@
       <label class="sl"><span>COMP</span><input type="range" min="0" max="255" id="comp_level" data-target="comp_level"><b class="sl-val" id="comp_levelVal">128</b></label>
       <label class="sl"><span>VOX</span><input type="range" min="0" max="255" id="vox_gain" data-target="vox_gain"><b class="sl-val" id="vox_gainVal">128</b></label>
       <label class="sl"><span>MON</span><input type="range" min="0" max="255" id="mon_level" data-target="mon_level"><b class="sl-val" id="mon_levelVal">128</b></label>
+    </div>
+
+    <div class="grp" id="tunerGrp">
+      <div class="grp-title">ANTENNA TUNER</div>
+      <div class="row">
+        <button class="key tog" data-act="toggle" data-fn="tuner" id="tunerBtn" title="Antenna tuner in / out of line">TUNER</button>
+        <button class="key" data-act="tune_atu" id="tuneBtn" title="Start an antenna-tuner cycle — transmits a brief carrier to tune">TUNE</button>
+      </div>
     </div>
 
     <div class="grp" id="splitGrp">

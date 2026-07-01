@@ -552,11 +552,20 @@ class YaesuSimTransport(Transport):
                 if cmd.startswith(k) and cmd[len(k):].isdigit():
                     self._levels[k] = cmd[len(k):]; break
         elif cmd.startswith("EX") and len(cmd) >= 5 and cmd[2:5].isdigit():     # SET menu
-            num, field = int(cmd[2:5]), cmd[5:]
-            if field:                                  # write -> remember it
-                self._menu_vals[num] = field
-            else:                                      # read -> echo stored value or a default
-                out = f"EX{num:03d}{self._menu_vals.get(num) or self._ex_default(num)};"
+            # menu-number width varies (FT-991A NNN=3, FT-891 GGNN=4); match a known item.
+            body = cmd[2:]
+            num = it = None
+            for w in (4, 3):
+                if len(body) >= w and body[:w].isdigit() and int(body[:w]) in self._menu_index:
+                    num, it = int(body[:w]), self._menu_index[int(body[:w])]
+                    field = body[w:]
+                    break
+            if it is not None:
+                if field:                              # write -> remember it
+                    self._menu_vals[num] = field
+                else:                                  # read -> echo stored value or a default
+                    w = getattr(it, "ex_width", 3)
+                    out = f"EX{num:0{w}d}{self._menu_vals.get(num) or self._ex_default(num)};"
         if out and self._on_bytes:
             self._on_bytes(out.encode("ascii"))
 
@@ -570,7 +579,8 @@ class YaesuSimTransport(Transport):
             return "0"
         try:
             val = it.min if it.kind == "int" else 0    # enum -> index 0, signed -> 0
-            return menu_engine.yaesu_encode(it, val)[5:-1]   # strip EX<NNN> and ';'
+            w = getattr(it, "ex_width", 3)
+            return menu_engine.yaesu_encode(it, val)[2 + w:-1]   # strip EX<num> and ';'
         except Exception:
             return "0"
 

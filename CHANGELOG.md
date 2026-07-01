@@ -3,6 +3,38 @@
 All notable changes to **Radio WebOp** are documented here. This project adheres
 to [Semantic Versioning](https://semver.org).
 
+## [0.2.17] — 2026-06-30
+
+Adds the **Yaesu FT‑891** (HF/50 MHz mobile), typically reached over a Digirig (USB‑serial CAT
+plus a separate USB sound card for RX/TX audio — so it uses the host sound‑card audio path).
+
+### Added
+- **Yaesu FT‑891 radio profile.** All‑mode HF + 6 m (160–6 m), 10 modes (no DATA‑FM/C4FM),
+  IPO/AMP preamp, a single RF ATT, 5–100 W, S/PO/SWR/ALC/COMP/ID meters. COM‑only, no CAT band
+  scope (AF scope), **no internal ATU** (menu 16‑15 TUNER SELECT is external/ATAS only, so the
+  Tuner/Tune controls are hidden). Reuses the shared Yaesu CAT driver.
+- **Full FT‑891 SET menu in the Settings tab** — all **159 items** across 18 groups, compiled
+  from the FT‑891 CAT reference (each with its exact on‑the‑wire value width) and cross‑checked
+  against a deterministic parse of the manual. Connection/transmit‑sensitive items (CAT link,
+  PC keying, PTT/port routing, TX time‑out, per‑band max power, tuner select, factory reset)
+  are confirm‑gated; version items are read‑only.
+
+### Changed
+- **Menu engine handles variable EX menu‑number widths.** The FT‑891 addresses SET‑menu items
+  by a 4‑digit group/item code (`EXGGNN`, e.g. 05‑14 → `EX0514`) rather than the FT‑991A's flat
+  3‑digit `EXNNN`; `MenuItem.ex_width` carries the width through read/write/decode (and the sim).
+- **Tuner controls moved to the TX panel; "Setup" tab renamed "Settings".** The **TUNER**/**TUNE**
+  buttons are transmit functions, so they now live in the TX tab (in their own ANTENNA TUNER group,
+  gated on the rig having an internal ATU) instead of RX.
+
+### Safety
+- **TX time‑out backstop on connect** — the FT‑891's TX TOT (menu 05‑14) is set to 2 min (120 s)
+  on connect, matching the app's PTT failsafe.
+- **PC KEYING forced OFF on connect** (menu 07‑12) so no control line can key the rig; the Yaesu
+  driver no longer sends an FT‑991A‑specific menu number when a radio doesn't line‑key.
+- CW **transmit** is not wired for the FT‑891 yet (its CAT `KY` only replays stored keyer
+  memories, not arbitrary text) — key CW with a paddle for now.
+
 ## [0.2.16] — 2026-06-30
 
 Remote operation: host‑side sound‑card audio for serial radios, a much faster meter, and a

@@ -46,14 +46,22 @@ def decode(item, reply: str, protocol: str = "yaesu"):
 
 
 # ---- Yaesu CAT EX ----------------------------------------------------------
+# The menu-number field width varies by model: the FT-991A uses a flat 3-digit EXNNN, the
+# FT-891 a 4-digit group/item EXGGNN (e.g. 07-12 -> EX0712). `item.ex_width` carries it.
+def _exw(item) -> int:
+    return getattr(item, "ex_width", 3)
+
+
 def yaesu_read_cmd(item) -> str:
-    return f"EX{item.num:03d};"
+    w = _exw(item)
+    return f"EX{item.num:0{w}d};"
 
 
 def yaesu_encode(item, value) -> str:
     if getattr(item, "readonly", False):
-        raise MenuError(f"menu {item.num:03d} ({item.name}) is read-only")
-    return f"EX{item.num:03d}{_encode_field(item, value)};"
+        raise MenuError(f"menu {item.num} ({item.name}) is read-only")
+    w = _exw(item)
+    return f"EX{item.num:0{w}d}{_encode_field(item, value)};"
 
 
 def yaesu_decode(item, reply: str):
@@ -71,9 +79,10 @@ def _ex_body(item, reply: str) -> Optional[str]:
     s = s[2:]
     if s.endswith(";"):
         s = s[:-1]
-    if len(s) < 3 or not s[:3].isdigit() or int(s[:3]) != item.num:
+    w = _exw(item)
+    if len(s) < w or not s[:w].isdigit() or int(s[:w]) != item.num:
         return None
-    return s[3:]
+    return s[w:]
 
 
 # ---- value field encode / decode -------------------------------------------

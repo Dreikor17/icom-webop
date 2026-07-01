@@ -106,6 +106,7 @@ class YaesuRadio:
         self.on_menu = None
         self._menu_index = {}     # num -> MenuItem, built on connect
         self._menu_vals = {}      # num -> last decoded menu value (cache)
+        self._ex_width = 3        # EX menu-number width (FT-991A NNN=3, FT-891 GGNN=4)
         self.state = fresh_state(self.profile)
         self.state["dual_watch"] = False
 
@@ -118,7 +119,9 @@ class YaesuRadio:
             self.state["dual_watch"] = False
         self._tp = transport
         self._rxbuf = ""
-        self._menu_index = {it.num: it for it in (getattr(self.profile, "menu", None) or [])}
+        _menu = getattr(self.profile, "menu", None) or []
+        self._menu_index = {it.num: it for it in _menu}
+        self._ex_width = max((getattr(it, "ex_width", 3) for it in _menu), default=3)
         self._menu_vals = {}
         transport.start(self._on_bytes)
         self.state["connected"] = True
@@ -147,7 +150,12 @@ class YaesuRadio:
             else:
                 self._send("EX0600;")                       # no key port -> PC KEYING = OFF
         else:
-            self._send("EX0600;")                           # menu 060 PC KEYING = OFF (safe default)
+            # Not line-keying (e.g. FT-891 over a Digirig): force PC KEYING = OFF as a safety
+            # default so no control line can key the rig. The menu number differs per model
+            # (FT-991A 060, FT-891 07-12), so the full EX string comes from the profile.
+            off = getattr(self.profile, "pc_keying_off_cat", "")
+            if off:
+                self._send(off)
         self._poll_stop.clear()
         self._poll_thread = threading.Thread(target=self._poll, daemon=True, name="yaesu-poll")
         self._poll_thread.start()
@@ -661,7 +669,10 @@ class YaesuRadio:
         return True
 
     def _handle_ex_reply(self, m: str) -> None:
-        it = self._menu_index.get(int(m[2:5]))
+        w = self._ex_width
+        if len(m) < 2 + w or not m[2:2 + w].isdigit():
+            return
+        it = self._menu_index.get(int(m[2:2 + w]))
         if it is None:
             return
         val = menu_engine.yaesu_decode(it, m)

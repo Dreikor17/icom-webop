@@ -7,6 +7,19 @@ Each radio is a **declarative `RadioProfile`** in `backend/profiles.py` — tran
 
 ## Done
 
+### v0.2.17 — Yaesu FT‑891
+- **FT‑891 profile** (HF/50 MHz mobile, typically over a Digirig) on the shared Yaesu CAT driver:
+  160–6 m, 10 modes, IPO/AMP preamp, RF ATT, 5–100 W, S/PO/SWR/ALC/COMP/ID meters; COM‑only, AF
+  scope, **no internal ATU** (external/ATAS only). Host sound‑card audio (Digirig CODEC as Radio
+  RX/TX).
+- **Full 159‑item SET menu** in the Settings tab, compiled from the CAT reference and cross‑checked
+  against a deterministic parse; connection/transmit‑sensitive items confirm‑gated, versions
+  read‑only. The menu engine now carries a per‑item **`ex_width`** so it speaks the FT‑891's 4‑digit
+  `EXGGNN` menu numbers as well as the FT‑991A's 3‑digit `EXNNN`.
+- **Safety:** TX TOT (05‑14) set to 120 s and PC KEYING (07‑12) forced OFF on connect; the driver
+  no longer emits an FT‑991A menu number for a radio that doesn't line‑key. CW *transmit* is not
+  wired yet (FT‑891 `KY` replays stored memories only).
+
 ### v0.2.16 — remote operation: host audio + fast meter + secure remote access
 - **Host sound‑card audio** for serial/USB radios operated remotely — the server captures the host's
   RX card → browser and plays the browser mic → the host's TX card (16 kHz PCM over the WS, like the

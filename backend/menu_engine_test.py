@@ -49,6 +49,25 @@ try:
 except me.MenuError:
     C("RADIO_ID readonly raises", "MenuError", "MenuError")
 
+# ---- Yaesu FT-891: 4-digit EXGGNN menu numbers (ex_width=4) ----
+FT891_TXTOT = MenuItem(514, "TX TOT", "General", kind="int", digits=2, ex_width=4, min=0, max=30, unit="min")
+FT891_PCKEY = MenuItem(712, "PC KEYING", "CW", kind="enum", digits=1, ex_width=4, options=["OFF", "DAKY", "RTS", "DTR"])
+FT891_ODISP = MenuItem(803, "OTHER DISP", "DATA", kind="signed-int", digits=5, ex_width=4, min=-3000, max=3000, step=10, unit="Hz")
+FT891_LCUT = MenuItem(101, "AM LCUT (leading-zero num)", "AM", kind="int", digits=2, ex_width=4, min=1, max=15)
+
+C("FT891 read EX0514", me.yaesu_read_cmd(FT891_TXTOT), "EX0514;")             # 4-digit, not EX514
+C("FT891 EX0514 set 2 (=tot_cat)", me.yaesu_encode(FT891_TXTOT, 2), "EX051402;")
+C("FT891 EX0514 decode", me.yaesu_decode(FT891_TXTOT, "EX051402;"), 2)
+C("FT891 EX0712 DTR", me.yaesu_encode(FT891_PCKEY, "DTR"), "EX07123;")
+C("FT891 EX0712 OFF (=pc_keying_off)", me.yaesu_encode(FT891_PCKEY, "OFF"), "EX07120;")
+C("FT891 EX0712 decode", me.yaesu_decode(FT891_PCKEY, "EX07123;"), "DTR")
+C("FT891 EX0803 signed -1500", me.yaesu_encode(FT891_ODISP, -1500), "EX0803-1500;")
+C("FT891 EX0803 decode", me.yaesu_decode(FT891_ODISP, "EX0803-1500;"), -1500)
+C("FT891 read EX0101 (leading zero)", me.yaesu_read_cmd(FT891_LCUT), "EX0101;")
+C("FT891 EX0101 decode 7", me.yaesu_decode(FT891_LCUT, "EX010107;"), 7)
+# a 4-digit item must NOT match a 3-digit-sliced reply for a different menu
+C("FT891 EX0514 rejects EX051", me.yaesu_decode(FT891_TXTOT, "EX0511;"), None)
+
 # ---- Icom CI-V (1A 05 <data-number>) ----
 TOT = MenuItem(41, "Time-Out Timer", "TX", kind="enum", digits=2, options=["OFF", "3min", "5min", "10min", "20min", "30min"])
 SIDETONE = MenuItem(221, "Side Tone Level", "CW", kind="int", digits=4, min=0, max=255)

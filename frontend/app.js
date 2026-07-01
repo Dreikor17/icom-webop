@@ -718,6 +718,8 @@
     const at = $("attBtn"); if (at) at.style.display = capHas("att", p.has_att) ? "" : "none";
     const tu = $("tunerBtn"); if (tu) tu.style.display = capHas("tuner", p.has_tuner) ? "" : "none";
     const tn = $("tuneBtn"); if (tn) tn.style.display = capHas("tuner", p.has_tuner) ? "" : "none";
+    // hide the whole ANTENNA TUNER group (now in the TX panel) when the rig has no internal ATU
+    const tg = $("tunerGrp"); if (tg) tg.style.display = capHas("tuner", p.has_tuner) ? "" : "none";
     // VFO A/B select: hidden when the rig has no CAT active-VFO selector (FT-991A); A=B/SWAP stay
     const vfoSel = capHas("vfo_select", true);
     document.querySelectorAll('[data-act="vfo"][data-code="0"], [data-act="vfo"][data-code="1"]')

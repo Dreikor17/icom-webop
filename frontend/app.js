@@ -587,8 +587,8 @@
       try { localStorage.setItem("radiowebop.bandplan", on ? "1" : "0"); } catch (_) {}
     }
     btn.addEventListener("click", () => apply(!scope.showBandplan));
-    let saved = "0";
-    try { saved = localStorage.getItem("radiowebop.bandplan") || "0"; } catch (_) {}
+    let saved = "1";                                // band plan ON by default
+    try { saved = localStorage.getItem("radiowebop.bandplan") || "1"; } catch (_) {}
     apply(saved === "1");
     setInterval(updateLegend, 600);               // refresh the color key as you tune / change span
 

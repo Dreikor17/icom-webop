@@ -3,6 +3,24 @@
 All notable changes to **Radio WebOp** are documented here. This project adheres
 to [Semantic Versioning](https://semver.org).
 
+## [0.2.22] — 2026-07-02
+
+Scope frequency clarity, auto RX audio on COM, and a CW‑transmit mode fix.
+
+### Added
+- **Frequency scale on the scope** — the spectrum/waterfall now shows the **centre (tuned)
+  frequency** by the marker plus the **left/right edge frequencies**, so the frequency is explicit
+  and verifiable. The centre marker sits on the tuned frequency (dead‑centre in centre mode).
+- **Cursor frequency readout** — hovering over the spectrum or waterfall shows the frequency under
+  the mouse (to 100 Hz), for both the CI‑V scope and the AF scope.
+- **Auto‑start RX audio on COM/USB connect** — connecting a serial radio now turns on RX audio
+  automatically (host sound‑card capture), so you hear the radio without clicking 🔊.
+
+### Fixed
+- **CW encoder TX in any CW mode** — the TX button rejected the FT‑991A's `CW-USB`/`CW-LSB` (it only
+  accepted `CW`/`CW-R`). It now accepts any CW mode across all radios (Icom `CW`/`CW-R`, Yaesu
+  `CW-USB`/`CW-LSB`). The backend guards were already model‑correct.
+
 ## [0.2.21] — 2026-07-01
 
 Fills in the IC-7300MK2 operating controls (the "expose every setting" pass, now for Icom). The

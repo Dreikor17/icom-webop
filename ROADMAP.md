@@ -7,6 +7,11 @@ Each radio is a **declarative `RadioProfile`** in `backend/profiles.py` — tran
 
 ## Done
 
+### v0.2.22 — scope frequency scale + cursor readout, auto RX audio, CW-TX mode fix
+- Scope shows the **centre (tuned) + edge frequencies** and a **cursor frequency readout** on hover
+  (CI-V + AF scopes). **RX audio auto-starts on COM/USB connect**. **CW encoder TX** now works in any
+  CW mode (fixed the FT-991A CW-USB/CW-LSB rejection).
+
 ### v0.2.21 — IC-7300MK2 operating controls
 - Filled the Icom operating-control gaps: **internal ATU** (`1C 01`, reuses TUNER/TUNE),
   **FM tone/TSQL + CTCSS freq** (`16 42/43`, `1B 00`), an **Icom CW/filter group** (APF `16 32`,

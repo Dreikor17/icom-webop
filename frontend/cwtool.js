@@ -316,8 +316,9 @@
       if (st.cw_tx) { rc.send({ action: "cw_stop" }); return; }   // already sending -> stop
       if (!st.connected) { setTxHint("connect a radio to transmit"); return; }
       if (!st.cw_tx_ready) { setTxHint("CW key port not found — check the radio's 2nd USB (Standard) COM port"); return; }
+      // any CW mode: Icom CW / CW-R, Yaesu CW-USB / CW-LSB
       const m = st.mode_name || "";
-      if (m !== "CW" && m !== "CW-R") { setTxHint("set the radio to CW / CW-R to transmit"); return; }
+      if (!m.startsWith("CW")) { setTxHint("set the radio to a CW mode to transmit"); return; }
       const text = $("cwSend").value;
       if (!text.trim()) { setTxHint("type a message first"); return; }
       const wpm = Math.max(5, Math.min(40, +$("cwWpmSet").value || 18));

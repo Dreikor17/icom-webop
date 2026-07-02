@@ -691,10 +691,24 @@
     apply(saved === "1");
     setInterval(updateLegend, 600);               // refresh the color key as you tune / change span
 
+    const hf = $("hoverFreq");
     wrap.addEventListener("mousemove", (e) => {
-      if (!scope.showBandplan || !tip) return;
       const r = ov.getBoundingClientRect();
       const px = (e.clientX - r.left) * (scope.W / r.width);
+      // cursor frequency readout — always, over the whole spectrum + waterfall
+      if (hf) {
+        const f = scope.freqAtX(px);
+        if (f > 0) {
+          hf.textContent = (f / 1e6).toFixed(4) + " MHz";
+          hf.hidden = false;
+          let x = e.clientX + 12, y = e.clientY - 28;
+          if (x + hf.offsetWidth > window.innerWidth - 8) x = e.clientX - hf.offsetWidth - 12;
+          if (y < 4) y = e.clientY + 16;
+          hf.style.left = x + "px"; hf.style.top = y + "px";
+        } else hf.hidden = true;
+      }
+      // band-plan segment tooltip — only while the overlay is on
+      if (!scope.showBandplan || !tip) return;
       const py = (e.clientY - r.top) * ((scope.scopeH || (scope.specH + scope.wfH)) / r.height);
       const seg = scope.bandplanSegAt(px, py);
       if (!seg) { tip.hidden = true; return; }
@@ -711,7 +725,7 @@
       if (y + th > window.innerHeight - 8) y = e.clientY - th - 14;
       tip.style.left = x + "px"; tip.style.top = y + "px";
     });
-    wrap.addEventListener("mouseleave", () => { if (tip) tip.hidden = true; });
+    wrap.addEventListener("mouseleave", () => { if (tip) tip.hidden = true; if (hf) hf.hidden = true; });
   })();
 
   // ---- radio profiles (bands/modes/steps render from the selected radio) ----
@@ -1070,8 +1084,10 @@
     try {
       const r = await fetch("/api/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const j = await r.json();
-      if (j.ok) { $("conn").classList.remove("open"); blanked = false; }   // fresh connection -> live data again
-      else if (!silent) alert("Connect failed: " + (j.error || "unknown"));
+      if (j.ok) {
+        $("conn").classList.remove("open"); blanked = false;              // fresh connection -> live data again
+        if (!silent) autoStartRx();                                       // COM: auto-start RX audio (rides the Connect click)
+      } else if (!silent) alert("Connect failed: " + (j.error || "unknown"));
     } catch (e) { if (!silent) alert("Connect error: " + e); }
     finally { btn.textContent = "Connect"; btn.disabled = false; }
   }
@@ -1362,6 +1378,29 @@
     const ml = $("micLevel"); if (ml) ml.style.width = "0%";
   }
 
+  // Turn RX audio ON (shared by the 🔊 button and the auto-start on COM connect).
+  // Returns false if a serial radio has no host RX sound card selected yet.
+  function startRxAudio() {
+    if ($("audioBtn").classList.contains("active")) return true;
+    if (currentTransportKind() === "serial") {
+      const dev = $("rxDev") ? $("rxDev").value : "";
+      if (!dev) return false;                           // host RX card not available yet
+      send({ action: "host_rx", on: true, device: +dev });
+    }
+    startAudio();                                       // play the WS PCM (host capture, or LAN radio)
+    if (afEligible()) startAfScope(rxBus);              // FT-991A etc.: AF spectrum tapped off the RX bus
+    $("audioBtn").classList.add("active");
+    return true;
+  }
+  // Auto-start RX audio after a (user-initiated) COM/serial connect. Retries briefly so it waits
+  // for the host RX sound card to enumerate. Only after a real Connect click, so the AudioContext
+  // resume rides that user gesture.
+  function autoStartRx(tries = 10) {
+    if (currentTransportKind() !== "serial") return;
+    if ($("audioBtn").classList.contains("active")) return;
+    if (state.connected && startRxAudio()) return;      // wait for connect + the host RX card
+    if (tries > 0) setTimeout(() => autoStartRx(tries - 1), 250);
+  }
   $("audioBtn").onclick = () => {
     const serial = currentTransportKind() === "serial";
     if ($("audioBtn").classList.contains("active")) {   // RX off
@@ -1369,14 +1408,10 @@
       audioOn = false; stopAfScope();
       $("audioBtn").classList.remove("active");
     } else {                                            // RX on
-      if (serial) {
-        const dev = $("rxDev") ? $("rxDev").value : "";
-        if (!dev) { alert("Pick the radio's RX sound card on the host computer (Radio RX)."); return; }
-        send({ action: "host_rx", on: true, device: +dev });
+      if (serial && !($("rxDev") && $("rxDev").value)) {
+        alert("Pick the radio's RX sound card on the host computer (Radio RX)."); return;
       }
-      startAudio();                                     // play the WS PCM (host capture, or LAN radio)
-      if (afEligible()) startAfScope(rxBus);            // FT-991A etc.: AF spectrum tapped off the RX bus
-      $("audioBtn").classList.add("active");
+      startRxAudio();
     }
   };
   $("micBtn").onclick = async () => {

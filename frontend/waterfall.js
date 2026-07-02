@@ -122,6 +122,14 @@
       return [c - span / 2, c + span / 2];
     }
 
+    // frequency (Hz) at an output pixel x — the exact inverse of freqToX over the
+    // visible range, so it's correct for both the CI-V scope and the AF scope.
+    freqAtX(px) {
+      const [lo, hi] = this.visibleRange();
+      const x = Math.max(0, Math.min(this.W, px));
+      return lo + (x / this.W) * (hi - lo);
+    }
+
     // sweep value at output pixel x. The VIEW is centered on the tuned freq while the
     // SWEEP is centered on its own center_hz, so during a tune the data is offset to
     // keep the tuned freq dead-center (returns -1 where x falls outside the sweep).
@@ -255,6 +263,22 @@
       if (m.out) {
         ctx.fillStyle = "rgba(255,80,80,.9)"; ctx.font = "11px monospace";
         ctx.fillText("OUT OF RANGE", w / 2 - 40, this.specH / 2);
+      }
+      // frequency scale: left/right edge (MHz) + the CENTRE (tuned) freq by the marker,
+      // so the frequency shown on the scope is explicit and verifiable.
+      const [flo, fhi] = this.visibleRange();
+      if (fhi > flo) {
+        ctx.font = "10px Consolas, monospace";
+        ctx.textBaseline = "top";
+        ctx.fillStyle = "rgba(150,190,220,.7)";
+        ctx.textAlign = "left";  ctx.fillText((flo / 1e6).toFixed(3), 3, 2);
+        ctx.textAlign = "right"; ctx.fillText((fhi / 1e6).toFixed(3), w - 3, 2);
+        if (tuned) {                                            // centre indicator = the tuned freq
+          const cx = Math.max(40, Math.min(w - 40, this.freqToX(tuned)));
+          ctx.textAlign = "center"; ctx.fillStyle = "#ffb15a";
+          ctx.fillText((tuned / 1e6).toFixed(4) + " MHz", cx, 9);
+        }
+        ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
       }
       this.drawBandplan();
     }

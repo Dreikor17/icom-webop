@@ -578,6 +578,13 @@ select,input,.baud{
 .band-tip .bt-rng{color:var(--txt-dim);font-family:var(--mono);font-size:11px;margin-top:1px}
 .band-tip .bt-d{color:var(--txt-dim);margin-top:3px;line-height:1.35}
 
+/* cursor frequency readout over the spectrum / waterfall */
+.hover-freq{position:fixed;z-index:60;pointer-events:none;white-space:nowrap;
+  background:rgba(8,20,30,.94);border:1px solid rgba(120,200,255,.55);border-radius:5px;
+  padding:3px 7px;color:#cdeeff;font:600 11px/1.1 var(--mono,'Consolas',monospace);
+  box-shadow:0 3px 12px rgba(0,0,0,.45)}
+.hover-freq[hidden]{display:none}
+
 /* ===== remote access modal ===== */
 .modal-overlay{position:fixed;inset:0;z-index:200;background:rgba(2,8,14,.7);display:grid;place-items:center;padding:16px}
 .modal-overlay[hidden]{display:none}
